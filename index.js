@@ -343,7 +343,11 @@ function deleteNote(path, index) {
         } else {
             updateData(notesPath, notes);
         }
-        if (activeKey) {
+        
+        const query = searchInput?.value.trim();
+        if (query) {
+            performSearch(query);
+        } else if (activeKey) {
             renderContent(activeKey, currentData[activeKey]);
         }
     }
@@ -357,7 +361,11 @@ function showInlineNoteEditor(container, path, existingNote = '', noteIndex = -1
 
     // If we're editing, hide the static display of the note being edited
     if (noteIndex > -1) {
-        container.querySelectorAll('.flex.justify-between.items-center')[noteIndex].style.display = 'none';
+        // Find the correct note display to hide
+        const noteDisplays = container.querySelectorAll('.flex.justify-between.items-center');
+        if(noteDisplays[noteIndex]) {
+            noteDisplays[noteIndex].style.display = 'none';
+        }
     }
 
     const noteContainer = document.createElement('div');
@@ -392,7 +400,10 @@ function showInlineNoteEditor(container, path, existingNote = '', noteIndex = -1
         
         updateData(notesPath, notes);
         
-        if (activeKey) {
+        const query = searchInput?.value.trim();
+        if (query) {
+            performSearch(query);
+        } else if (activeKey) {
             renderContent(activeKey, currentData[activeKey]);
         }
     };
@@ -402,7 +413,10 @@ function showInlineNoteEditor(container, path, existingNote = '', noteIndex = -1
     cancelButton.className = 'px-3 py-1 secondary-bg text-white rounded-md secondary-hover-bg transition-all text-sm';
     cancelButton.onclick = () => {
         // Just re-render to cancel the edit
-         if (activeKey) {
+        const query = searchInput?.value.trim();
+        if (query) {
+            performSearch(query);
+        } else if (activeKey) {
             renderContent(activeKey, currentData[activeKey]);
         }
     };
@@ -645,10 +659,12 @@ function renderSearchResults(results, query) {
     const contentTitle = document.getElementById('content-title');
     if (!contentArea || !contentTitle) return;
 
+    // Deselect any active navigation item
     document.querySelectorAll('#navigation a').forEach(link => {
         link.classList.remove('primary-bg', 'text-white');
         link.style.backgroundColor = '';
     });
+    activeKey = null;
 
     contentTitle.textContent = `نتایج جستجو برای: "${query}"`;
     contentArea.innerHTML = '';
@@ -661,6 +677,7 @@ function renderSearchResults(results, query) {
     const fragment = document.createDocumentFragment();
     const uniqueResults = new Map();
 
+    // Ensure we only show one editable field per unique text value found
     results.forEach(result => {
         if (!uniqueResults.has(result.value)) {
             uniqueResults.set(result.value, result);
@@ -674,24 +691,58 @@ function renderSearchResults(results, query) {
         const pathElement = document.createElement('p');
         pathElement.className = 'text-sm text-gray-400 mb-2';
         const readablePath = result.path
-            .replace(/\[\d+\]/g, '')
+            .replace(/\[\d+\]/g, '') // remove array indices from path
             .replace(/\./g, ' > ')
             .replace(/_/g, ' ');
         pathElement.textContent = readablePath;
+        resultCard.appendChild(pathElement);
 
-        const valueElement = document.createElement('p');
-        valueElement.className = 'text-gray-200';
+        const itemContainer = document.createElement('div');
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'flex items-start gap-2 group';
+
+        const textElement = document.createElement('span');
+        textElement.setAttribute('contenteditable', 'true');
+        textElement.className = 'flex-grow p-1 rounded-md focus:outline-none focus:ring-2 focus-ring';
 
         const regex = new RegExp(query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
-        valueElement.innerHTML = result.value.replace(regex, (match) => `<mark>${match}</mark>`);
+        textElement.innerHTML = result.value.replace(regex, (match) => `<mark>${match}</mark>`);
+
+        textElement.onblur = (e) => {
+            const oldValue = getNestedValue(currentData, result.path);
+            const newValue = e.target.innerText; // innerText strips out <mark> tags
+            if (oldValue !== newValue) {
+                updateData(result.path, newValue);
+                showNotification('متن با موفقیت ویرایش شد.', 'success');
+            }
+        };
+
+        const noteButton = document.createElement('button');
+        noteButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 opacity-50 group-hover:opacity-100 transition-opacity" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>`;
+        noteButton.title = 'افزودن یادداشت';
+        noteButton.className = 'mt-1 text-gray-400 hover:text-white';
+        noteButton.onclick = () => showInlineNoteEditor(itemContainer, result.path);
         
-        resultCard.appendChild(pathElement);
-        resultCard.appendChild(valueElement);
+        contentWrapper.appendChild(textElement);
+        contentWrapper.appendChild(noteButton);
+        itemContainer.appendChild(contentWrapper);
+
+        // Check for and render existing notes
+        const notesPath = `${result.path}_notes`;
+        const notes = getNestedValue(currentData, notesPath);
+        if (Array.isArray(notes)) {
+            notes.forEach((note, index) => {
+                renderNoteDisplay(itemContainer, result.path, note, index);
+            });
+        }
+
+        resultCard.appendChild(itemContainer);
         fragment.appendChild(resultCard);
     });
 
     contentArea.appendChild(fragment);
 }
+
 
 function clearSearchAndRestoreView() {
     const contentArea = document.getElementById('content-area');
