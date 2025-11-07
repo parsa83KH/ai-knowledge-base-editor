@@ -1,15 +1,6 @@
-const LOCAL_STORAGE_KEY = 'knowledgeBaseChanges';
-const JSONBIN_BIN_ID_KEY = 'jsonbinBinId'; // Key to store bin ID in localStorage
-const SHARED_BIN_ID_KEY = 'sharedKnowledgeBaseBin'; // Fixed bin ID for sharing across devices
+const FIREBASE_PATH = 'knowledgeBaseChanges'; // Path in Firebase Realtime Database
 const USERNAME = 'PayvandLab'; // Hardcoded username
-const PASSWORD = 'AIchatbot'; // Hardcoded password
-const JSONBIN_API_URL = 'https://api.jsonbin.io/v3/b';
-// Get your free API key from https://jsonbin.io - replace this with your key
-const JSONBIN_API_KEY = '$2a$10$YylzpgTP0BDt5BqHxXgsDuqftEUJihklh0BpEVJaGAcUW/fUnQAHK';
-// Fixed bin ID for sharing - set this after creating your first bin
-// To get your bin ID: create a bin, then copy its ID from JSONBin.io dashboard
-// Leave as null to auto-create on first save (but then you need to copy the ID to this variable)
-const FIXED_BIN_ID = null; // Replace null with your bin ID (e.g., '65a1b2c3d4e5f6g7h8i9j0k1') 
+const PASSWORD = 'AIchatbot'; // Hardcoded password 
 let originalData = {};
 let currentData = {};
 let activeKey = null; // To track the currently displayed section
@@ -69,40 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
-    document.getElementById('show-bin-id-btn')?.addEventListener('click', showCurrentBinId);
     searchInput = document.getElementById('search-input');
     searchInput?.addEventListener('input', handleSearch);
-
-    // --- Bin ID Modal functionality ---
-    const binIdModal = document.getElementById('bin-id-modal');
-    const closeBinIdModal = document.getElementById('close-bin-id-modal');
-    const copyBinIdBtn = document.getElementById('copy-bin-id-btn');
-    
-    closeBinIdModal?.addEventListener('click', () => {
-        if (binIdModal) binIdModal.classList.add('hidden');
-    });
-    
-    copyBinIdBtn?.addEventListener('click', async () => {
-        const binIdDisplay = document.getElementById('bin-id-display');
-        if (binIdDisplay && binIdDisplay.value) {
-            try {
-                await navigator.clipboard.writeText(binIdDisplay.value);
-                showNotification('Bin ID کپی شد!', 'success');
-            } catch (err) {
-                // Fallback for older browsers
-                binIdDisplay.select();
-                document.execCommand('copy');
-                showNotification('Bin ID کپی شد!', 'success');
-            }
-        }
-    });
-    
-    // Close modal when clicking outside
-    binIdModal?.addEventListener('click', (e) => {
-        if (e.target === binIdModal) {
-            binIdModal.classList.add('hidden');
-        }
-    });
 });
 
 function handleLogin() {
@@ -136,6 +95,8 @@ function handleLogin() {
 
 async function loadKnowledgeBaseAndInitializeApp() {
     try {
+        showLoader('در حال بارگذاری پایگاه دانش...');
+        
         // Fetch and initialize data
         const response = await fetch('./knowledgeBase.json');
         if (!response.ok) {
@@ -144,7 +105,7 @@ async function loadKnowledgeBaseAndInitializeApp() {
         const data = await response.json();
         originalData = JSON.parse(JSON.stringify(data)); // Deep copy for comparison
 
-        // Try to load changes from cloud storage first, then fallback to local storage
+        // Load changes from Firebase only
         let savedChanges = null;
         
         try {
@@ -153,15 +114,9 @@ async function loadKnowledgeBaseAndInitializeApp() {
                 showNotification('تغییرات از فضای ابری بارگذاری شد.', 'success');
             }
         } catch (cloudError) {
-            console.log("Could not load from cloud, trying local storage:", cloudError);
-            // Fallback to local storage
-            const savedChangesJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (savedChangesJSON) {
-                try {
-                    savedChanges = JSON.parse(savedChangesJSON);
-                } catch (e) {
-                    console.error("Error parsing saved changes from localStorage:", e);
-                }
+            console.log("Could not load from cloud:", cloudError);
+            if (cloudError.message && !cloudError.message.includes('Firebase is not configured')) {
+                showNotification('خطا در بارگذاری از فضای ابری. از داده‌های اصلی استفاده می‌شود.', 'error');
             }
         }
 
@@ -173,8 +128,10 @@ async function loadKnowledgeBaseAndInitializeApp() {
             currentData = JSON.parse(JSON.stringify(originalData));
         }
 
+        hideLoader();
         initializeApp();
     } catch (error) {
+        hideLoader();
         console.error("Error loading knowledge base:", error);
         const contentArea = document.getElementById('content-area');
         if(contentArea) {
@@ -562,21 +519,38 @@ function showInlineNoteEditor(container, path, existingNote = '', noteIndex = -1
     noteInput.focus();
 }
 
-function undoAllChanges() {
+async function undoAllChanges() {
     const changes = findChanges(originalData, currentData);
     if (Object.keys(changes.modifications || {}).length === 0 && Object.keys(changes.notes || {}).length === 0) {
         showNotification('هیچ تغییری برای بازگردانی وجود ندارد.', 'info');
         return;
     }
 
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
-    currentData = JSON.parse(JSON.stringify(originalData));
+    try {
+        showLoader('در حال بازگردانی تغییرات...');
+        
+        // Reset data to original
+        currentData = JSON.parse(JSON.stringify(originalData));
+        
+        // Clear Firebase data
+        if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
+            const database = window.firebaseDatabase;
+            const dbRef = window.firebaseRef(database, FIREBASE_PATH);
+            await window.firebaseSet(dbRef, null);
+        }
+        
+        hideLoader();
+        
+        if (activeKey) {
+            renderContent(activeKey, currentData[activeKey]);
+        }
 
-    if (activeKey) {
-        renderContent(activeKey, currentData[activeKey]);
+        showNotification('تمام تغییرات با موفقیت بازگردانده شد.', 'success');
+    } catch (error) {
+        hideLoader();
+        console.error("Error undoing changes:", error);
+        showNotification('خطا در بازگردانی تغییرات.', 'error');
     }
-
-    showNotification('تمام تغییرات با موفقیت بازگردانده شد.', 'success');
 }
 
 
@@ -667,34 +641,24 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-function showBinIdModal(binId) {
-    const modal = document.getElementById('bin-id-modal');
-    const binIdDisplay = document.getElementById('bin-id-display');
-    
-    if (modal && binIdDisplay && binId) {
-        binIdDisplay.value = binId;
-        modal.classList.remove('hidden');
+function showLoader(message = 'در حال بارگذاری...') {
+    const loaderOverlay = document.getElementById('loader-overlay');
+    const loaderText = loaderOverlay?.querySelector('p.text-lg');
+    if (loaderOverlay) {
+        loaderOverlay.classList.remove('hidden');
+        if (loaderText) {
+            loaderText.textContent = message;
+        }
     }
 }
 
-function showCurrentBinId() {
-    // Try to get bin ID from fixed constant, localStorage, or show message
-    let binId = FIXED_BIN_ID;
-    
-    if (!binId) {
-        binId = localStorage.getItem(SHARED_BIN_ID_KEY);
-    }
-    
-    if (!binId) {
-        binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
-    }
-    
-    if (binId) {
-        showBinIdModal(binId);
-    } else {
-        showNotification('هنوز Bin ID ایجاد نشده است. ابتدا تغییراتی ایجاد کنید و ذخیره کنید.', 'info');
+function hideLoader() {
+    const loaderOverlay = document.getElementById('loader-overlay');
+    if (loaderOverlay) {
+        loaderOverlay.classList.add('hidden');
     }
 }
+
 
 async function saveChanges() {
     const changes = findChanges(originalData, currentData);
@@ -703,191 +667,56 @@ async function saveChanges() {
         return;
     }
 
-    // Save to local storage first (for offline access)
     try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(changes));
-    } catch (e) {
-        console.error("Failed to save to localStorage:", e);
-    }
-
-    // Save to cloud storage
-    try {
+        showLoader('در حال ذخیره تغییرات در فضای ابری...');
         await saveChangesToCloud(changes);
-        showNotification('تغییرات با موفقیت در فضای ابری و مرورگر ذخیره شد.', 'success');
+        hideLoader();
+        showNotification('تغییرات با موفقیت در فضای ابری ذخیره شد.', 'success');
     } catch (cloudError) {
+        hideLoader();
         console.error("Failed to save to cloud:", cloudError);
-        if (cloudError.message && cloudError.message.includes('API key not configured')) {
-            showNotification('برای ذخیره در فضای ابری، لطفا API Key از jsonbin.io دریافت کنید و در فایل index.js تنظیم کنید.', 'error');
+        if (cloudError.message && cloudError.message.includes('Firebase is not configured')) {
+            showNotification('برای ذخیره در فضای ابری، لطفا Firebase را در فایل index.html تنظیم کنید.', 'error');
         } else {
-            showNotification('تغییرات در مرورگر ذخیره شد، اما ذخیره در فضای ابری ناموفق بود.', 'error');
+            showNotification('خطا در ذخیره تغییرات در فضای ابری.', 'error');
         }
     }
 }
 
 async function saveChangesToCloud(changes) {
-    // Check if API key is configured
-    if (JSONBIN_API_KEY === '$2a$10$YOUR_API_KEY_HERE') {
-        throw new Error('JSONBin API key not configured. Please get a free API key from https://jsonbin.io and update JSONBIN_API_KEY in index.js');
+    // Check if Firebase is available
+    if (!window.firebaseDatabase || !window.firebaseRef || !window.firebaseSet) {
+        throw new Error('Firebase is not configured. Please set up Firebase in index.html');
     }
 
     try {
-        // Use fixed bin ID if set, otherwise try localStorage, otherwise create new
-        let binId = FIXED_BIN_ID;
-        
-        if (!binId) {
-            // Try to get shared bin ID from localStorage
-            binId = localStorage.getItem(SHARED_BIN_ID_KEY);
-            
-            // If no shared bin ID, try to get from old location (for migration)
-            if (!binId) {
-                binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
-                if (binId) {
-                    // Migrate to shared key
-                    localStorage.setItem(SHARED_BIN_ID_KEY, binId);
-                    localStorage.removeItem(JSONBIN_BIN_ID_KEY);
-                }
-            }
-        }
-        
-        if (binId) {
-            // Bin exists, try to update it
-            const updateResponse = await fetch(`${JSONBIN_API_URL}/${binId}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Master-Key': JSONBIN_API_KEY
-                },
-                body: JSON.stringify(changes)
-            });
-
-            if (!updateResponse.ok) {
-                if (updateResponse.status === 404) {
-                    // Bin was deleted, create a new one
-                    binId = null;
-                    if (!FIXED_BIN_ID) {
-                        localStorage.removeItem(SHARED_BIN_ID_KEY);
-                    }
-                } else {
-                    const errorData = await updateResponse.json().catch(() => ({}));
-                    throw new Error(`Failed to update cloud storage: ${updateResponse.status} - ${errorData.message || 'Unknown error'}`);
-                }
-            } else {
-                // Successfully updated
-                const result = await updateResponse.json();
-                // If using fixed bin ID, also store it in localStorage for devices that don't have it in code
-                if (FIXED_BIN_ID && !localStorage.getItem(SHARED_BIN_ID_KEY)) {
-                    localStorage.setItem(SHARED_BIN_ID_KEY, FIXED_BIN_ID);
-                }
-                return result;
-            }
-        }
-        
-        if (!binId) {
-            // Create a new bin
-            const createResponse = await fetch(`${JSONBIN_API_URL}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Master-Key': JSONBIN_API_KEY,
-                    'X-Bin-Name': 'Knowledge Base Changes',
-                    'X-Bin-Private': 'false'
-                },
-                body: JSON.stringify(changes)
-            });
-
-            if (!createResponse.ok) {
-                const errorData = await createResponse.json().catch(() => ({}));
-                throw new Error(`Failed to create cloud storage: ${createResponse.status} - ${errorData.message || 'Unknown error'}`);
-            }
-
-            const result = await createResponse.json();
-            binId = result.metadata?.id;
-            
-            if (binId) {
-                // Store in localStorage so all devices can access it
-                localStorage.setItem(SHARED_BIN_ID_KEY, binId);
-                localStorage.setItem(JSONBIN_BIN_ID_KEY, binId);
-                
-                // Show notification with bin ID so user can copy it to FIXED_BIN_ID
-                console.log('New bin created! Bin ID:', binId);
-                console.log('Copy this ID to FIXED_BIN_ID in index.js for better sharing across devices');
-                showNotification(`Bin جدید ایجاد شد. برای به اشتراک گذاری، Bin ID را ببینید.`, 'info');
-                
-                // Show modal with bin ID
-                showBinIdModal(binId);
-            }
-            
-            return result;
-        }
+        const database = window.firebaseDatabase;
+        const dbRef = window.firebaseRef(database, FIREBASE_PATH);
+        await window.firebaseSet(dbRef, changes);
+        return { success: true };
     } catch (error) {
-        throw error;
+        console.error('Firebase save error:', error);
+        throw new Error(`Failed to save to Firebase: ${error.message}`);
     }
 }
 
 async function loadChangesFromCloud() {
-    // Check if API key is configured
-    if (JSONBIN_API_KEY === '$2a$10$YOUR_API_KEY_HERE') {
-        return null; // Silently fail if API key not configured
+    // Check if Firebase is available
+    if (!window.firebaseDatabase || !window.firebaseRef || !window.firebaseGet) {
+        return null; // Silently fail if Firebase not configured
     }
 
     try {
-        // Use fixed bin ID if set, otherwise try localStorage
-        let binId = FIXED_BIN_ID;
+        const database = window.firebaseDatabase;
+        const dbRef = window.firebaseRef(database, FIREBASE_PATH);
+        const snapshot = await window.firebaseGet(dbRef);
         
-        if (!binId) {
-            // Try to get shared bin ID from localStorage
-            binId = localStorage.getItem(SHARED_BIN_ID_KEY);
-            
-            // If no shared bin ID, try to get from old location (for migration)
-            if (!binId) {
-                binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
-                if (binId) {
-                    // Migrate to shared key
-                    localStorage.setItem(SHARED_BIN_ID_KEY, binId);
-                }
-            }
+        if (snapshot.exists()) {
+            return snapshot.val();
         }
-        
-        if (!binId) {
-            // No bin ID stored, nothing to load
-            return null;
-        }
-
-        const response = await fetch(`${JSONBIN_API_URL}/${binId}/latest`, {
-            method: 'GET',
-            headers: {
-                'X-Master-Key': JSONBIN_API_KEY
-            }
-        });
-
-        if (!response.ok) {
-            if (response.status === 404) {
-                // Bin doesn't exist, clear the stored IDs (unless using fixed bin ID)
-                if (!FIXED_BIN_ID) {
-                    localStorage.removeItem(SHARED_BIN_ID_KEY);
-                    localStorage.removeItem(JSONBIN_BIN_ID_KEY);
-                }
-                return null;
-            }
-            throw new Error(`Failed to load from cloud: ${response.status}`);
-        }
-
-        const result = await response.json();
-        const changes = result.record || result; // JSONBin v3 returns data in .record property
-        
-        // Ensure bin ID is stored in localStorage (even if using fixed bin ID, for devices that don't have it)
-        if (binId) {
-            if (FIXED_BIN_ID) {
-                // Store fixed bin ID in localStorage so devices without the code update can still access it
-                localStorage.setItem(SHARED_BIN_ID_KEY, FIXED_BIN_ID);
-            } else if (!localStorage.getItem(SHARED_BIN_ID_KEY)) {
-                localStorage.setItem(SHARED_BIN_ID_KEY, binId);
-            }
-        }
-        
-        return changes;
+        return null;
     } catch (error) {
-        console.error('Error loading from cloud:', error);
+        console.error('Firebase load error:', error);
         throw error;
     }
 }
