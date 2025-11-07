@@ -120,34 +120,7 @@
 </head>
 <body class="min-h-screen">
 
-    <!-- Login Container -->
-    <div id="login-container" class="flex justify-center items-center min-h-screen">
-        <div class="bg-card p-8 rounded-lg shadow-xl w-full max-w-sm border border-color fade-in">
-            <h2 class="text-3xl font-bold primary-color mb-6 text-center">ورود به سیستم</h2>
-            <div class="mb-4">
-                <label for="username-input" class="block text-gray-300 text-sm font-semibold mb-2">نام کاربری:</label>
-                <input type="text" id="username-input" placeholder="نام کاربری" class="w-full bg-[#111827] border border-color text-gray-200 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all" aria-label="نام کاربری">
-            </div>
-            <div class="mb-6 relative">
-                <label for="password-input" class="block text-gray-300 text-sm font-semibold mb-2">رمز عبور:</label>
-                <input type="password" id="password-input" placeholder="رمز عبور" class="w-full bg-[#111827] border border-color text-gray-200 rounded-lg py-2 px-4 pl-10 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all" aria-label="رمز عبور">
-                <button type="button" id="toggle-password-visibility" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 focus:outline-none" aria-label="نمایش/پنهان کردن رمز عبور">
-                    <svg id="eye-open-icon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display: block;">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    <svg id="eye-closed-icon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display: none;">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7 .227-.643.518-1.258.857-1.838m7.014-.582a3 3 0 10-4.242-4.242M1.493 1.493l1.414 1.414M3.707 9.293a1 1 0 00-1.414 1.414L2.586 12a.999.999 0 00-.002.001l-1.414 1.414M6.707 14.707a1 1 0 001.414 1.414l.707-.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707m8.486-1.414a1 1 0 00-1.414 1.414l.707.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707m8.486-1.414a1 1 0 00-1.414 1.414l.707.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707m8.486-1.414a1 1 0 00-1.414 1.414l.707.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707m8.486-1.414a1 1 0 00-1.414 1.414l.707.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707m8.486-1.414a1 1 0 00-1.414 1.414l.707.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707m8.486-1.414a1 1 0 00-1.414 1.414l.707.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707m8.486-1.414a1 1 0 00-1.414 1.414l.707.707m-5.414-1.414a1 1 0 00-1.414 1.414l.707.707M4.886 9.176l-.995.995M2.879 17.581l1.415 1.415M16.734 7.362L18.148 5.949M12 15a3 3 0 11-6 0 3 3 0 016 0z" clip-rule="evenodd" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7 1.274-4.057 5.064-7 9.542-7z" />
-                    </svg>
-                </button>
-            </div>
-            <p id="login-error-message" class="text-red-500 text-center mb-4 hidden" role="alert"></p>
-            <button id="login-btn" class="w-full primary-bg text-white rounded-lg py-3 primary-hover-bg transition-all font-bold">ورود</button>
-        </div>
-    </div>
-
-    <div id="app" class="flex flex-col md:flex-row h-screen" style="display: none;">
+    <div id="app" class="flex flex-col md:flex-row h-screen">
         <!-- Sidebar -->
         <aside id="sidebar" class="w-full md:w-1/4 lg:w-1/5 p-4 bg-card border-l border-color overflow-y-auto transition-all">
             <h1 class="text-2xl font-bold mb-4 primary-color">پایگاه دانش</h1>

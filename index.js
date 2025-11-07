@@ -1,6 +1,4 @@
 const FIREBASE_PATH = 'knowledgeBaseChanges'; // Path in Firebase Realtime Database
-const USERNAME = 'PayvandLab'; // Hardcoded username
-const PASSWORD = 'AIchatbot'; // Hardcoded password
 let originalData = {};
 let currentData = {};
 let activeKey = null; // To track the currently displayed section
@@ -9,13 +7,14 @@ let searchInput = null;
 // Firebase doesn't allow certain characters in keys: ".", "#", "$", "/", "[", "]"
 // We need to encode/decode paths for Firebase storage
 function encodeFirebaseKey(key) {
+    if (!key || typeof key !== 'string') return key;
     return key
+        .replace(/\[/g, '__LBRACK__')
+        .replace(/\]/g, '__RBRACK__')
         .replace(/\./g, '__DOT__')
         .replace(/#/g, '__HASH__')
         .replace(/\$/g, '__DOLLAR__')
-        .replace(/\//g, '__SLASH__')
-        .replace(/\[/g, '__LBRACK__')
-        .replace(/\]/g, '__RBRACK__');
+        .replace(/\//g, '__SLASH__');
 }
 
 function decodeFirebaseKey(key) {
@@ -71,56 +70,10 @@ function decodeChangesFromFirebase(encodedChanges) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const loginContainer = document.getElementById('login-container');
-    const appContainer = document.getElementById('app');
-    const loginBtn = document.getElementById('login-btn');
-    const usernameInput = document.getElementById('username-input');
-    const passwordInput = document.getElementById('password-input');
-    const loginErrorMessage = document.getElementById('login-error-message');
-    const togglePasswordVisibilityBtn = document.getElementById('toggle-password-visibility');
-    const eyeOpenIcon = document.getElementById('eye-open-icon');
-    const eyeClosedIcon = document.getElementById('eye-closed-icon');
+    // Initialize app directly without login
+    loadKnowledgeBaseAndInitializeApp();
 
-    // Check if user is already logged in
-    if (sessionStorage.getItem('loggedIn') === 'true') {
-        if (loginContainer) loginContainer.style.display = 'none';
-        if (appContainer) appContainer.style.display = 'flex'; // Show the app
-        loadKnowledgeBaseAndInitializeApp();
-    } else {
-        if (loginContainer) loginContainer.style.display = 'flex';
-        if (appContainer) appContainer.style.display = 'none'; // Hide the app
-    }
-
-    if (loginBtn && usernameInput && passwordInput) {
-        loginBtn.addEventListener('click', handleLogin);
-        // Allow pressing Enter in password field to log in
-        passwordInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                handleLogin();
-            }
-        });
-    }
-
-    // Password visibility toggle logic
-    if (togglePasswordVisibilityBtn && passwordInput && eyeOpenIcon && eyeClosedIcon) {
-        togglePasswordVisibilityBtn.addEventListener('click', () => {
-            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-            passwordInput.setAttribute('type', type);
-
-            // Toggle eye icons
-            if (type === 'password') {
-                eyeOpenIcon.style.display = 'block';
-                eyeClosedIcon.style.display = 'none';
-                togglePasswordVisibilityBtn.setAttribute('aria-label', 'نمایش رمز عبور');
-            } else {
-                eyeOpenIcon.style.display = 'none';
-                eyeClosedIcon.style.display = 'block';
-                togglePasswordVisibilityBtn.setAttribute('aria-label', 'پنهان کردن رمز عبور');
-            }
-        });
-    }
-
-    // --- Save, Undo, Export, and Search Functionality (after login) ---
+    // --- Save, Undo, Export, and Search Functionality ---
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
@@ -128,34 +81,6 @@ document.addEventListener('DOMContentLoaded', () => {
     searchInput?.addEventListener('input', handleSearch);
 });
 
-function handleLogin() {
-    const usernameInput = document.getElementById('username-input');
-    const passwordInput = document.getElementById('password-input');
-    const loginErrorMessage = document.getElementById('login-error-message');
-
-    const username = usernameInput ? usernameInput.value : '';
-    const password = passwordInput ? passwordInput.value : '';
-
-    if (username === USERNAME && password === PASSWORD) {
-        sessionStorage.setItem('loggedIn', 'true');
-        const loginContainer = document.getElementById('login-container');
-        const appContainer = document.getElementById('app');
-        if (loginContainer) loginContainer.style.display = 'none';
-        if (appContainer) appContainer.style.display = 'flex';
-        if (loginErrorMessage) {
-            loginErrorMessage.textContent = '';
-            loginErrorMessage.classList.add('hidden');
-        }
-        loadKnowledgeBaseAndInitializeApp();
-    } else {
-        if (loginErrorMessage) {
-            loginErrorMessage.textContent = 'نام کاربری یا رمز عبور اشتباه است.';
-            loginErrorMessage.classList.remove('hidden');
-        }
-        if (passwordInput) passwordInput.value = ''; // Clear password field on failure
-        showNotification('نام کاربری یا رمز عبور اشتباه است.', 'error');
-    }
-}
 
 async function loadKnowledgeBaseAndInitializeApp() {
     try {
@@ -756,12 +681,15 @@ async function saveChangesToCloud(changes) {
     try {
         // Encode changes to make Firebase-compatible keys
         const encodedChanges = encodeChangesForFirebase(changes);
+        console.log('Original changes:', changes);
+        console.log('Encoded changes:', encodedChanges);
         const database = window.firebaseDatabase;
         const dbRef = window.firebaseRef(database, FIREBASE_PATH);
         await window.firebaseSet(dbRef, encodedChanges);
         return { success: true };
     } catch (error) {
         console.error('Firebase save error:', error);
+        console.error('Changes that failed:', changes);
         throw new Error(`Failed to save to Firebase: ${error.message}`);
     }
 }
