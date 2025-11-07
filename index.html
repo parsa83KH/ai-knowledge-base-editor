@@ -69,13 +69,21 @@
         }
 
         .notification {
-            padding: 1rem 1.5rem;
+            padding: 0.75rem 1rem;
             border-radius: 0.5rem;
             color: white;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             animation: slideIn 0.3s ease-out, fadeOut 0.3s ease-in 2.7s forwards;
-            min-width: 250px;
+            min-width: 200px;
             text-align: center;
+            font-size: 0.875rem;
+        }
+        @media (min-width: 768px) {
+            .notification {
+                padding: 1rem 1.5rem;
+                min-width: 250px;
+                font-size: 1rem;
+            }
         }
         .notification-success { background-color: #10b981; }
         .notification-error { background-color: #ef4444; }
@@ -116,46 +124,117 @@
             padding: 0 2px;
             border-radius: 2px;
         }
+
+        /* Mobile Optimizations */
+        @media (max-width: 768px) {
+            body {
+                font-size: 14px;
+            }
+            #content-area {
+                font-size: 14px;
+            }
+            #content-area h3 {
+                font-size: 1.1rem;
+            }
+            #content-area .text-xl {
+                font-size: 1.1rem;
+            }
+        }
+
+        /* Sidebar Animation */
+        #sidebar {
+            transition: transform 0.3s ease-in-out;
+        }
+        #sidebar.open {
+            transform: translateX(0);
+        }
+        #sidebar-overlay {
+            transition: opacity 0.3s ease-in-out;
+        }
     </style>
 </head>
 <body class="min-h-screen">
 
+    <!-- Mobile Sidebar Overlay -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden md:hidden"></div>
+
     <div id="app" class="flex flex-col md:flex-row h-screen">
         <!-- Sidebar -->
-        <aside id="sidebar" class="w-full md:w-1/4 lg:w-1/5 p-4 bg-card border-l border-color overflow-y-auto transition-all">
-            <h1 class="text-2xl font-bold mb-4 primary-color">پایگاه دانش</h1>
+        <aside id="sidebar" class="fixed md:static inset-y-0 right-0 w-64 md:w-1/4 lg:w-1/5 p-4 bg-card border-l border-color overflow-y-auto transition-all z-50 transform translate-x-full md:translate-x-0">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-xl md:text-2xl font-bold primary-color">پایگاه دانش</h1>
+                <button id="close-sidebar-btn" class="md:hidden text-gray-400 hover:text-white p-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
             <nav id="navigation" class="space-y-2"></nav>
         </aside>
 
         <!-- Main Content -->
         <main class="w-full md:w-3/4 lg:w-4/5 overflow-y-auto">
-            <header class="sticky top-0 z-10 bg-[#111827] flex justify-between items-center p-6 border-b border-color gap-4">
-                <h2 id="content-title" class="text-3xl font-bold primary-color flex-shrink-0">انتخاب کنید</h2>
-                
-                <!-- Search Bar -->
-                <div class="relative flex-grow max-w-xl mx-auto">
-                    <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+            <header class="sticky top-0 z-10 bg-[#111827] border-b border-color">
+                <!-- Mobile Header -->
+                <div class="md:hidden p-3 flex items-center justify-between gap-2">
+                    <button id="menu-toggle-btn" class="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-md transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                         </svg>
+                    </button>
+                    <h2 id="content-title-mobile" class="text-lg font-bold primary-color flex-grow text-center truncate">انتخاب کنید</h2>
+                    <div class="flex items-center gap-1">
+                        <button id="save-changes-btn-mobile" class="px-3 py-1.5 primary-bg text-white rounded-md primary-hover-bg transition-all text-sm font-semibold">ذخیره</button>
                     </div>
-                    <input type="search" id="search-input" placeholder="جستجو در پایگاه دانش..." class="w-full bg-[#1f2937] border border-color text-gray-200 rounded-lg py-2 pr-10 pl-4 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all">
                 </div>
-        
-                <div class="flex items-center gap-2 md:gap-3 flex-shrink-0">
-                    <button id="undo-all-btn" class="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-all font-semibold" title="واگرد کل تغییرات">واگرد کل</button>
-                    <button id="export-changes-btn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all font-semibold" title="خروجی گرفتن از تغییرات">خروجی</button>
-                    <button id="save-changes-btn" class="px-4 py-2 primary-bg text-white rounded-md primary-hover-bg transition-all font-semibold">ذخیره</button>
+
+                <!-- Desktop Header -->
+                <div class="hidden md:flex justify-between items-center p-4 lg:p-6 gap-4">
+                    <h2 id="content-title" class="text-2xl lg:text-3xl font-bold primary-color flex-shrink-0">انتخاب کنید</h2>
+                    
+                    <!-- Search Bar -->
+                    <div class="relative flex-grow max-w-xl mx-auto">
+                        <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <input type="search" id="search-input" placeholder="جستجو در پایگاه دانش..." class="w-full bg-[#1f2937] border border-color text-gray-200 rounded-lg py-2 pr-10 pl-4 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all text-sm lg:text-base">
+                    </div>
+            
+                    <div class="flex items-center gap-2 lg:gap-3 flex-shrink-0">
+                        <button id="undo-all-btn" class="px-3 lg:px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-all font-semibold text-sm lg:text-base" title="واگرد کل تغییرات">واگرد کل</button>
+                        <button id="export-changes-btn" class="px-3 lg:px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all font-semibold text-sm lg:text-base" title="خروجی گرفتن از تغییرات">خروجی</button>
+                        <button id="save-changes-btn" class="px-3 lg:px-4 py-2 primary-bg text-white rounded-md primary-hover-bg transition-all font-semibold text-sm lg:text-base">ذخیره</button>
+                    </div>
+                </div>
+
+                <!-- Mobile Search Bar -->
+                <div class="md:hidden px-3 pb-3">
+                    <div class="relative">
+                        <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <input type="search" id="search-input-mobile" placeholder="جستجو..." class="w-full bg-[#1f2937] border border-color text-gray-200 rounded-lg py-2 pr-10 pl-4 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all text-sm">
+                    </div>
+                </div>
+
+                <!-- Mobile Action Buttons -->
+                <div class="md:hidden px-3 pb-3 flex items-center gap-2 overflow-x-auto">
+                    <button id="undo-all-btn-mobile" class="px-3 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-all font-semibold text-sm whitespace-nowrap" title="واگرد کل تغییرات">واگرد کل</button>
+                    <button id="export-changes-btn-mobile" class="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all font-semibold text-sm whitespace-nowrap" title="خروجی گرفتن از تغییرات">خروجی</button>
                 </div>
             </header>
-            <div id="content-area" class="p-6 space-y-6">
-                <p>لطفا یک بخش را از منوی سمت راست انتخاب کنید.</p>
+            <div id="content-area" class="p-3 md:p-6 space-y-4 md:space-y-6 pb-20 md:pb-6">
+                <p class="text-sm md:text-base">لطفا یک بخش را از منوی سمت راست انتخاب کنید.</p>
             </div>
         </main>
     </div>
 
     <!-- UI Elements -->
-    <div id="notification-container" class="fixed top-5 right-5 z-50 space-y-2"></div>
+    <div id="notification-container" class="fixed top-16 md:top-5 right-3 md:right-5 left-3 md:left-auto z-50 space-y-2 max-w-sm md:max-w-none"></div>
     <div id="progress-bar-container" class="fixed top-0 left-0 w-full h-1 bg-gray-700 hidden z-50">
         <div id="progress-bar" class="h-full primary-bg transition-all duration-500" style="width: 0%;"></div>
     </div>

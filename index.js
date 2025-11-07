@@ -75,10 +75,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Save, Undo, Export, and Search Functionality ---
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
+    document.getElementById('save-changes-btn-mobile')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
+    document.getElementById('undo-all-btn-mobile')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
+    document.getElementById('export-changes-btn-mobile')?.addEventListener('click', exportChanges);
+    
+    // Search inputs (desktop and mobile)
     searchInput = document.getElementById('search-input');
+    const searchInputMobile = document.getElementById('search-input-mobile');
     searchInput?.addEventListener('input', handleSearch);
+    searchInputMobile?.addEventListener('input', (e) => {
+        if (searchInput) searchInput.value = e.target.value;
+        handleSearch(e);
+    });
+
+    // Mobile sidebar toggle
+    const menuToggleBtn = document.getElementById('menu-toggle-btn');
+    const closeSidebarBtn = document.getElementById('close-sidebar-btn');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+    const openSidebar = () => {
+        sidebar?.classList.add('open');
+        sidebarOverlay?.classList.remove('hidden');
+    };
+
+    const closeSidebar = () => {
+        sidebar?.classList.remove('open');
+        sidebarOverlay?.classList.add('hidden');
+    };
+
+    menuToggleBtn?.addEventListener('click', openSidebar);
+    closeSidebarBtn?.addEventListener('click', closeSidebar);
+    sidebarOverlay?.addEventListener('click', closeSidebar);
+
+    // Close sidebar when clicking on a navigation item (mobile only)
+    const navigation = document.getElementById('navigation');
+    if (navigation) {
+        navigation.addEventListener('click', (e) => {
+            if (e.target.tagName === 'A' && window.innerWidth < 768) {
+                closeSidebar();
+            }
+        });
+    }
 });
 
 
@@ -173,9 +213,14 @@ function initializeApp() {
             e.preventDefault();
             activeKey = key;
 
-            // Clear search input when a category is selected
+            // Clear search inputs when a category is selected
+            const searchInput = document.getElementById('search-input');
+            const searchInputMobile = document.getElementById('search-input-mobile');
             if (searchInput) {
                 searchInput.value = '';
+            }
+            if (searchInputMobile) {
+                searchInputMobile.value = '';
             }
 
             renderContent(key, currentData[key]);
@@ -200,9 +245,12 @@ function initializeApp() {
 function renderContent(title, data) {
     const contentArea = document.getElementById('content-area');
     const contentTitle = document.getElementById('content-title');
-    if (!contentArea || !contentTitle) return;
+    const contentTitleMobile = document.getElementById('content-title-mobile');
+    if (!contentArea) return;
 
-    contentTitle.textContent = title.replace(/_/g, ' ');
+    const displayTitle = title.replace(/_/g, ' ');
+    if (contentTitle) contentTitle.textContent = displayTitle;
+    if (contentTitleMobile) contentTitleMobile.textContent = displayTitle;
     contentArea.innerHTML = '';
 
     // --- General Note Section ---
@@ -521,11 +569,14 @@ async function undoAllChanges() {
         // Reset data to original
         currentData = JSON.parse(JSON.stringify(originalData));
         
-        // Clear Firebase data
+        // Save empty changes to Firebase to update server
+        // This ensures that when undo happens, the server is also updated
         if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
+            const emptyChanges = { modifications: {}, notes: {} };
+            const encodedChanges = encodeChangesForFirebase(emptyChanges);
             const database = window.firebaseDatabase;
             const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-            await window.firebaseSet(dbRef, null);
+            await window.firebaseSet(dbRef, encodedChanges);
         }
         
         hideLoader();
@@ -534,7 +585,7 @@ async function undoAllChanges() {
             renderContent(activeKey, currentData[activeKey]);
         }
 
-        showNotification('تمام تغییرات با موفقیت بازگردانده شد.', 'success');
+        showNotification('تمام تغییرات با موفقیت بازگردانده شد و در سرور ذخیره شد.', 'success');
     } catch (error) {
         hideLoader();
         console.error("Error undoing changes:", error);
@@ -785,6 +836,17 @@ function exportChanges() {
 
 function handleSearch(event) {
     const query = event.target.value.toLowerCase().trim();
+    // Sync search inputs
+    const searchInput = document.getElementById('search-input');
+    const searchInputMobile = document.getElementById('search-input-mobile');
+    if (searchInput && searchInputMobile) {
+        if (event.target === searchInput) {
+            searchInputMobile.value = searchInput.value;
+        } else {
+            searchInput.value = searchInputMobile.value;
+        }
+    }
+    
     if (!query) {
         clearSearchAndRestoreView();
     } else {
@@ -914,7 +976,8 @@ function renderSearchResults(results, query) {
 function clearSearchAndRestoreView() {
     const contentArea = document.getElementById('content-area');
     const contentTitle = document.getElementById('content-title');
-    if (!contentArea || !contentTitle) return;
+    const contentTitleMobile = document.getElementById('content-title-mobile');
+    if (!contentArea) return;
 
     if (activeKey) {
         renderContent(activeKey, currentData[activeKey]);
@@ -925,7 +988,8 @@ function clearSearchAndRestoreView() {
             }
         });
     } else {
-        contentTitle.textContent = 'انتخاب کنید';
+        if (contentTitle) contentTitle.textContent = 'انتخاب کنید';
+        if (contentTitleMobile) contentTitleMobile.textContent = 'انتخاب کنید';
         contentArea.innerHTML = '<p>لطفا یک بخش را از منوی سمت راست انتخاب کنید.</p>';
     }
 }
