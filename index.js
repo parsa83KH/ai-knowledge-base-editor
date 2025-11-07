@@ -8,9 +8,17 @@ let currentData = {};
 let activeKey = null; // To track the currently displayed section
 let searchInput = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // Initialize app directly without login
-    loadKnowledgeBaseAndInitializeApp();
+    try {
+        await loadKnowledgeBaseAndInitializeApp();
+    } catch (error) {
+        console.error('Failed to initialize app:', error);
+        const contentArea = document.getElementById('content-area');
+        if (contentArea) {
+            contentArea.innerHTML = `<p class="text-red-500">خطا در بارگذاری برنامه. لطفا صفحه را رفرش کنید.</p>`;
+        }
+    }
 
     // Save, Undo, Export, and Search Functionality
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
@@ -544,6 +552,10 @@ function findChanges(original, current) {
 
 function showNotification(message, type = 'info') {
     const container = document.getElementById('notification-container');
+    if (!container) {
+        console.log('Notification:', message);
+        return;
+    }
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
     notification.textContent = message;
