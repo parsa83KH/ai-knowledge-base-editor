@@ -1,7 +1,5 @@
 const LOCAL_STORAGE_KEY = 'knowledgeBaseChanges';
 const JSONBIN_BIN_ID_KEY = 'jsonbinBinId'; // Key to store bin ID in localStorage
-const USERNAME = 'PayvandLab'; // Hardcoded username
-const PASSWORD = 'AIchatbot'; // Hardcoded password
 const JSONBIN_API_URL = 'https://api.jsonbin.io/v3/b';
 // Get your free API key from https://jsonbin.io - replace this with your key
 const JSONBIN_API_KEY = '$2a$10$YylzpgTP0BDt5BqHxXgsDuqftEUJihklh0BpEVJaGAcUW/fUnQAHK'; 
@@ -11,91 +9,16 @@ let activeKey = null; // To track the currently displayed section
 let searchInput = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    const loginContainer = document.getElementById('login-container');
-    const appContainer = document.getElementById('app');
-    const loginBtn = document.getElementById('login-btn');
-    const usernameInput = document.getElementById('username-input');
-    const passwordInput = document.getElementById('password-input');
-    const loginErrorMessage = document.getElementById('login-error-message');
-    const togglePasswordVisibilityBtn = document.getElementById('toggle-password-visibility');
-    const eyeOpenIcon = document.getElementById('eye-open-icon');
-    const eyeClosedIcon = document.getElementById('eye-closed-icon');
+    // Initialize app directly without login
+    loadKnowledgeBaseAndInitializeApp();
 
-    // Check if user is already logged in
-    if (sessionStorage.getItem('loggedIn') === 'true') {
-        if (loginContainer) loginContainer.style.display = 'none';
-        if (appContainer) appContainer.style.display = 'flex'; // Show the app
-        loadKnowledgeBaseAndInitializeApp();
-    } else {
-        if (loginContainer) loginContainer.style.display = 'flex';
-        if (appContainer) appContainer.style.display = 'none'; // Hide the app
-    }
-
-    if (loginBtn && usernameInput && passwordInput) {
-        loginBtn.addEventListener('click', handleLogin);
-        // Allow pressing Enter in password field to log in
-        passwordInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                handleLogin();
-            }
-        });
-    }
-
-    // Password visibility toggle logic
-    if (togglePasswordVisibilityBtn && passwordInput && eyeOpenIcon && eyeClosedIcon) {
-        togglePasswordVisibilityBtn.addEventListener('click', () => {
-            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-            passwordInput.setAttribute('type', type);
-
-            // Toggle eye icons
-            if (type === 'password') {
-                eyeOpenIcon.style.display = 'block';
-                eyeClosedIcon.style.display = 'none';
-                togglePasswordVisibilityBtn.setAttribute('aria-label', 'نمایش رمز عبور');
-            } else {
-                eyeOpenIcon.style.display = 'none';
-                eyeClosedIcon.style.display = 'block';
-                togglePasswordVisibilityBtn.setAttribute('aria-label', 'پنهان کردن رمز عبور');
-            }
-        });
-    }
-
-    // --- Save, Undo, Export, and Search Functionality (after login) ---
+    // Save, Undo, Export, and Search Functionality
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
     searchInput = document.getElementById('search-input');
     searchInput?.addEventListener('input', handleSearch);
 });
-
-function handleLogin() {
-    const usernameInput = document.getElementById('username-input');
-    const passwordInput = document.getElementById('password-input');
-    const loginErrorMessage = document.getElementById('login-error-message');
-
-    const username = usernameInput ? usernameInput.value : '';
-    const password = passwordInput ? passwordInput.value : '';
-
-    if (username === USERNAME && password === PASSWORD) {
-        sessionStorage.setItem('loggedIn', 'true');
-        const loginContainer = document.getElementById('login-container');
-        const appContainer = document.getElementById('app');
-        if (loginContainer) loginContainer.style.display = 'none';
-        if (appContainer) appContainer.style.display = 'flex';
-        if (loginErrorMessage) {
-            loginErrorMessage.textContent = '';
-            loginErrorMessage.classList.add('hidden');
-        }
-        loadKnowledgeBaseAndInitializeApp();
-    } else {
-        if (loginErrorMessage) {
-            loginErrorMessage.textContent = 'نام کاربری یا رمز عبور اشتباه است.';
-            loginErrorMessage.classList.remove('hidden');
-        }
-        if (passwordInput) passwordInput.value = ''; // Clear password field on failure
-        showNotification('نام کاربری یا رمز عبور اشتباه است.', 'error');
-    }
-}
 
 async function loadKnowledgeBaseAndInitializeApp() {
     try {
