@@ -1,10 +1,74 @@
 const FIREBASE_PATH = 'knowledgeBaseChanges'; // Path in Firebase Realtime Database
 const USERNAME = 'PayvandLab'; // Hardcoded username
-const PASSWORD = 'AIchatbot'; // Hardcoded password 
+const PASSWORD = 'AIchatbot'; // Hardcoded password
 let originalData = {};
 let currentData = {};
 let activeKey = null; // To track the currently displayed section
 let searchInput = null;
+
+// Firebase doesn't allow certain characters in keys: ".", "#", "$", "/", "[", "]"
+// We need to encode/decode paths for Firebase storage
+function encodeFirebaseKey(key) {
+    return key
+        .replace(/\./g, '__DOT__')
+        .replace(/#/g, '__HASH__')
+        .replace(/\$/g, '__DOLLAR__')
+        .replace(/\//g, '__SLASH__')
+        .replace(/\[/g, '__LBRACK__')
+        .replace(/\]/g, '__RBRACK__');
+}
+
+function decodeFirebaseKey(key) {
+    return key
+        .replace(/__DOT__/g, '.')
+        .replace(/__HASH__/g, '#')
+        .replace(/__DOLLAR__/g, '$')
+        .replace(/__SLASH__/g, '/')
+        .replace(/__LBRACK__/g, '[')
+        .replace(/__RBRACK__/g, ']');
+}
+
+function encodeChangesForFirebase(changes) {
+    const encoded = {};
+    
+    if (changes.modifications) {
+        encoded.modifications = {};
+        for (const key in changes.modifications) {
+            encoded.modifications[encodeFirebaseKey(key)] = changes.modifications[key];
+        }
+    }
+    
+    if (changes.notes) {
+        encoded.notes = {};
+        for (const key in changes.notes) {
+            encoded.notes[encodeFirebaseKey(key)] = changes.notes[key];
+        }
+    }
+    
+    return encoded;
+}
+
+function decodeChangesFromFirebase(encodedChanges) {
+    if (!encodedChanges) return null;
+    
+    const changes = {};
+    
+    if (encodedChanges.modifications) {
+        changes.modifications = {};
+        for (const key in encodedChanges.modifications) {
+            changes.modifications[decodeFirebaseKey(key)] = encodedChanges.modifications[key];
+        }
+    }
+    
+    if (encodedChanges.notes) {
+        changes.notes = {};
+        for (const key in encodedChanges.notes) {
+            changes.notes[decodeFirebaseKey(key)] = encodedChanges.notes[key];
+        }
+    }
+    
+    return changes;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     const loginContainer = document.getElementById('login-container');
@@ -690,9 +754,11 @@ async function saveChangesToCloud(changes) {
     }
 
     try {
+        // Encode changes to make Firebase-compatible keys
+        const encodedChanges = encodeChangesForFirebase(changes);
         const database = window.firebaseDatabase;
         const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-        await window.firebaseSet(dbRef, changes);
+        await window.firebaseSet(dbRef, encodedChanges);
         return { success: true };
     } catch (error) {
         console.error('Firebase save error:', error);
@@ -712,7 +778,9 @@ async function loadChangesFromCloud() {
         const snapshot = await window.firebaseGet(dbRef);
         
         if (snapshot.exists()) {
-            return snapshot.val();
+            const encodedChanges = snapshot.val();
+            // Decode changes from Firebase format
+            return decodeChangesFromFirebase(encodedChanges);
         }
         return null;
     } catch (error) {
