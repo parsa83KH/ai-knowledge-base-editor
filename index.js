@@ -1,4 +1,3 @@
-const FIREBASE_PATH = 'knowledgeBaseChanges'; // Path in Firebase Realtime Database
 const STORAGE_KEY = 'knowledgeBase_changes';
 let originalData = {};
 let currentData = {};
@@ -7,84 +6,17 @@ let searchInput = null;
 let autoSaveInterval = null;
 let lastSavedChanges = null;
 
-// Firebase doesn't allow certain characters in keys: ".", "#", "$", "/", "[", "]"
-// We need to encode/decode paths for Firebase storage
-function encodeFirebaseKey(key) {
-    if (!key || typeof key !== 'string') return key;
-    return key
-        .replace(/\[/g, '__LBRACK__')
-        .replace(/\]/g, '__RBRACK__')
-        .replace(/\./g, '__DOT__')
-        .replace(/#/g, '__HASH__')
-        .replace(/\$/g, '__DOLLAR__')
-        .replace(/\//g, '__SLASH__');
-}
-
-function decodeFirebaseKey(key) {
-    return key
-        .replace(/__DOT__/g, '.')
-        .replace(/__HASH__/g, '#')
-        .replace(/__DOLLAR__/g, '$')
-        .replace(/__SLASH__/g, '/')
-        .replace(/__LBRACK__/g, '[')
-        .replace(/__RBRACK__/g, ']');
-}
-
-function encodeChangesForFirebase(changes) {
-    const encoded = {};
-    
-    if (changes.modifications) {
-        encoded.modifications = {};
-        for (const key in changes.modifications) {
-            encoded.modifications[encodeFirebaseKey(key)] = changes.modifications[key];
-        }
-    }
-    
-    if (changes.notes) {
-        encoded.notes = {};
-        for (const key in changes.notes) {
-            encoded.notes[encodeFirebaseKey(key)] = changes.notes[key];
-        }
-    }
-    
-    return encoded;
-}
-
-function decodeChangesFromFirebase(encodedChanges) {
-    if (!encodedChanges) return null;
-    
-    const changes = {};
-    
-    if (encodedChanges.modifications) {
-        changes.modifications = {};
-        for (const key in encodedChanges.modifications) {
-            changes.modifications[decodeFirebaseKey(key)] = encodedChanges.modifications[key];
-        }
-    }
-    
-    if (encodedChanges.notes) {
-        changes.notes = {};
-        for (const key in encodedChanges.notes) {
-            changes.notes[decodeFirebaseKey(key)] = encodedChanges.notes[key];
-        }
-    }
-    
-    return changes;
-}
-
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize app directly without login
     loadKnowledgeBaseAndInitializeApp();
 
-    // --- Save, Undo, Export, Import, and Search Functionality ---
+    // --- Save, Undo, Export, and Search Functionality ---
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
     document.getElementById('save-changes-btn-mobile')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
     document.getElementById('undo-all-btn-mobile')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
     document.getElementById('export-changes-btn-mobile')?.addEventListener('click', exportChanges);
-    document.getElementById('import-changes-btn')?.addEventListener('click', importChanges);
-    document.getElementById('import-changes-btn-mobile')?.addEventListener('click', importChanges);
     
     // Search inputs (desktop and mobile)
     searchInput = document.getElementById('search-input');
@@ -139,16 +71,16 @@ async function loadKnowledgeBaseAndInitializeApp() {
         const data = await response.json();
         originalData = JSON.parse(JSON.stringify(data)); // Deep copy for comparison
 
-        // Load changes from Firebase only
+        // Load changes from localStorage
         let savedChanges = null;
         
         try {
-            savedChanges = await loadChangesFromCloud();
+            savedChanges = loadChangesFromStorage();
             if (savedChanges) {
                 showNotification('تغییرات ذخیره شده بارگذاری شد.', 'success');
             }
-        } catch (cloudError) {
-            console.log("Could not load saved changes:", cloudError);
+        } catch (error) {
+            console.log("Could not load saved changes:", error);
             showNotification('خطا در بارگذاری تغییرات ذخیره شده. از داده‌های اصلی استفاده می‌شود.', 'error');
         }
 
@@ -567,7 +499,7 @@ function showInlineNoteEditor(container, path, existingNote = '', noteIndex = -1
     noteInput.focus();
 }
 
-async function undoAllChanges() {
+function undoAllChanges() {
     const changes = findChanges(originalData, currentData);
     if (Object.keys(changes.modifications || {}).length === 0 && Object.keys(changes.notes || {}).length === 0) {
         showNotification('هیچ تغییری برای بازگردانی وجود ندارد.', 'info');
@@ -584,18 +516,6 @@ async function undoAllChanges() {
         const emptyChanges = { modifications: {}, notes: {} };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyChanges));
         lastSavedChanges = JSON.stringify(emptyChanges);
-        
-        // Also try Firebase if available (optional fallback)
-        if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
-            try {
-                const encodedChanges = encodeChangesForFirebase(emptyChanges);
-                const database = window.firebaseDatabase;
-                const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-                await window.firebaseSet(dbRef, encodedChanges);
-            } catch (firebaseError) {
-                console.warn('Firebase save failed during undo:', firebaseError);
-            }
-        }
         
         hideLoader();
         
@@ -721,7 +641,7 @@ function hideLoader() {
 }
 
 
-async function saveChanges() {
+function saveChanges() {
     const changes = findChanges(originalData, currentData);
     if (Object.keys(changes.modifications || {}).length === 0 && Object.keys(changes.notes || {}).length === 0) {
         showNotification('هیچ تغییری برای ذخیره وجود ندارد.', 'info');
@@ -730,38 +650,22 @@ async function saveChanges() {
 
     try {
         showLoader('در حال ذخیره تغییرات...');
-        await saveChangesToCloud(changes);
+        saveChangesToStorage(changes);
         lastSavedChanges = JSON.stringify(changes);
         hideLoader();
         updateSaveStatus();
         showNotification('تغییرات با موفقیت ذخیره شد.', 'success');
-    } catch (cloudError) {
+    } catch (error) {
         hideLoader();
-        console.error("Failed to save changes:", cloudError);
-        showNotification('خطا در ذخیره تغییرات.', 'error');
+        console.error("Failed to save changes:", error);
+        showNotification(error.message || 'خطا در ذخیره تغییرات.', 'error');
     }
 }
 
-async function saveChangesToCloud(changes) {
-    // Try localStorage first (works offline, no VPN needed)
+function saveChangesToStorage(changes) {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
         console.log('Changes saved to localStorage:', changes);
-        
-        // Also try Firebase if available (optional fallback)
-        if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
-            try {
-                const encodedChanges = encodeChangesForFirebase(changes);
-                const database = window.firebaseDatabase;
-                const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-                await window.firebaseSet(dbRef, encodedChanges);
-                console.log('Changes also saved to Firebase');
-            } catch (firebaseError) {
-                console.warn('Firebase save failed (using localStorage only):', firebaseError);
-                // Continue - localStorage save was successful
-            }
-        }
-        
         return { success: true };
     } catch (error) {
         console.error('localStorage save error:', error);
@@ -773,8 +677,7 @@ async function saveChangesToCloud(changes) {
     }
 }
 
-async function loadChangesFromCloud() {
-    // Try localStorage first (works offline, no VPN needed)
+function loadChangesFromStorage() {
     try {
         const savedChanges = localStorage.getItem(STORAGE_KEY);
         if (savedChanges) {
@@ -785,28 +688,6 @@ async function loadChangesFromCloud() {
         }
     } catch (error) {
         console.warn('localStorage load error:', error);
-    }
-
-    // Also try Firebase if available (optional fallback)
-    if (window.firebaseDatabase && window.firebaseRef && window.firebaseGet) {
-        try {
-            const database = window.firebaseDatabase;
-            const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-            const snapshot = await window.firebaseGet(dbRef);
-            
-            if (snapshot.exists()) {
-                const encodedChanges = snapshot.val();
-                const changes = decodeChangesFromFirebase(encodedChanges);
-                // Also save to localStorage for future use
-                if (changes) {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
-                    lastSavedChanges = JSON.stringify(changes);
-                }
-                return changes;
-            }
-        } catch (firebaseError) {
-            console.warn('Firebase load failed (using localStorage only):', firebaseError);
-        }
     }
     
     return null;
@@ -876,76 +757,6 @@ function exportChanges() {
     showNotification('فایل خروجی با موفقیت ایجاد شد.', 'success');
 }
 
-function importChanges() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = async (event) => {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        try {
-            showLoader('در حال بارگذاری فایل...');
-            const text = await file.text();
-            const importedData = JSON.parse(text);
-            
-            // Convert imported data to changes format if needed
-            let changes = importedData;
-            
-            // If the imported data is in the export format (flat map), convert it
-            if (importedData.modifications || importedData.notes) {
-                changes = importedData;
-            } else {
-                // Try to convert flat map to changes format
-                const modifications = {};
-                const notes = {};
-                
-                for (const path in importedData) {
-                    if (path.endsWith('_notes')) {
-                        notes[path] = importedData[path];
-                    } else {
-                        modifications[path] = importedData[path];
-                    }
-                }
-                
-                changes = { modifications, notes };
-            }
-            
-            // Apply imported changes to current data
-            currentData = applyChanges(JSON.parse(JSON.stringify(originalData)), changes);
-            
-            // Save to localStorage
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
-            lastSavedChanges = JSON.stringify(changes);
-            
-            // Also try Firebase if available
-            if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
-                try {
-                    const encodedChanges = encodeChangesForFirebase(changes);
-                    const database = window.firebaseDatabase;
-                    const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-                    await window.firebaseSet(dbRef, encodedChanges);
-                } catch (firebaseError) {
-                    console.warn('Firebase save failed during import:', firebaseError);
-                }
-            }
-            
-            hideLoader();
-            
-            // Refresh the view
-            if (activeKey) {
-                renderContent(activeKey, currentData[activeKey]);
-            }
-            
-            showNotification('تغییرات با موفقیت از فایل بارگذاری و اعمال شد.', 'success');
-        } catch (error) {
-            hideLoader();
-            console.error('Import error:', error);
-            showNotification('خطا در بارگذاری فایل. لطفا فرمت فایل را بررسی کنید.', 'error');
-        }
-    };
-    input.click();
-}
 
 // --- Search Functionality ---
 
@@ -1116,7 +927,7 @@ function startAutoSave() {
         clearInterval(autoSaveInterval);
     }
     
-    autoSaveInterval = setInterval(async () => {
+    autoSaveInterval = setInterval(() => {
         const changes = findChanges(originalData, currentData);
         const hasChanges = Object.keys(changes.modifications || {}).length > 0 || 
                           Object.keys(changes.notes || {}).length > 0;
@@ -1126,7 +937,7 @@ function startAutoSave() {
             // Only auto-save if changes are different from last saved
             if (currentChangesStr !== lastSavedChanges) {
                 try {
-                    await saveChangesToCloud(changes);
+                    saveChangesToStorage(changes);
                     lastSavedChanges = currentChangesStr;
                     console.log('Auto-saved changes');
                     updateSaveStatus();
