@@ -204,6 +204,7 @@
             
                     <div class="flex items-center gap-2 lg:gap-3 flex-shrink-0">
                         <button id="undo-all-btn" class="px-3 lg:px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-all font-semibold text-sm lg:text-base" title="واگرد کل تغییرات">واگرد کل</button>
+                        <button id="import-changes-btn" class="px-3 lg:px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all font-semibold text-sm lg:text-base" title="بارگذاری تغییرات از فایل">بارگذاری</button>
                         <button id="export-changes-btn" class="px-3 lg:px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all font-semibold text-sm lg:text-base" title="خروجی گرفتن از تغییرات">خروجی</button>
                         <button id="save-changes-btn" class="px-3 lg:px-4 py-2 primary-bg text-white rounded-md primary-hover-bg transition-all font-semibold text-sm lg:text-base">ذخیره</button>
                     </div>
@@ -224,6 +225,7 @@
                 <!-- Mobile Action Buttons -->
                 <div class="md:hidden px-3 pb-3 flex items-center gap-2 overflow-x-auto">
                     <button id="undo-all-btn-mobile" class="px-3 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-all font-semibold text-sm whitespace-nowrap" title="واگرد کل تغییرات">واگرد کل</button>
+                    <button id="import-changes-btn-mobile" class="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all font-semibold text-sm whitespace-nowrap" title="بارگذاری تغییرات از فایل">بارگذاری</button>
                     <button id="export-changes-btn-mobile" class="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all font-semibold text-sm whitespace-nowrap" title="خروجی گرفتن از تغییرات">خروجی</button>
                 </div>
             </header>
@@ -235,6 +237,7 @@
 
     <!-- UI Elements -->
     <div id="notification-container" class="fixed top-16 md:top-5 right-3 md:right-5 left-3 md:left-auto z-50 space-y-2 max-w-sm md:max-w-none"></div>
+    <!-- Save Status Indicator will be added dynamically -->
     <div id="progress-bar-container" class="fixed top-0 left-0 w-full h-1 bg-gray-700 hidden z-50">
         <div id="progress-bar" class="h-full primary-bg transition-all duration-500" style="width: 0%;"></div>
     </div>

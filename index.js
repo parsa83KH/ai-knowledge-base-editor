@@ -1,8 +1,11 @@
 const FIREBASE_PATH = 'knowledgeBaseChanges'; // Path in Firebase Realtime Database
+const STORAGE_KEY = 'knowledgeBase_changes';
 let originalData = {};
 let currentData = {};
 let activeKey = null; // To track the currently displayed section
 let searchInput = null;
+let autoSaveInterval = null;
+let lastSavedChanges = null;
 
 // Firebase doesn't allow certain characters in keys: ".", "#", "$", "/", "[", "]"
 // We need to encode/decode paths for Firebase storage
@@ -73,13 +76,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize app directly without login
     loadKnowledgeBaseAndInitializeApp();
 
-    // --- Save, Undo, Export, and Search Functionality ---
+    // --- Save, Undo, Export, Import, and Search Functionality ---
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
     document.getElementById('save-changes-btn-mobile')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
     document.getElementById('undo-all-btn-mobile')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
     document.getElementById('export-changes-btn-mobile')?.addEventListener('click', exportChanges);
+    document.getElementById('import-changes-btn')?.addEventListener('click', importChanges);
+    document.getElementById('import-changes-btn-mobile')?.addEventListener('click', importChanges);
     
     // Search inputs (desktop and mobile)
     searchInput = document.getElementById('search-input');
@@ -140,13 +145,11 @@ async function loadKnowledgeBaseAndInitializeApp() {
         try {
             savedChanges = await loadChangesFromCloud();
             if (savedChanges) {
-                showNotification('تغییرات از فضای ابری بارگذاری شد.', 'success');
+                showNotification('تغییرات ذخیره شده بارگذاری شد.', 'success');
             }
         } catch (cloudError) {
-            console.log("Could not load from cloud:", cloudError);
-            if (cloudError.message && !cloudError.message.includes('Firebase is not configured')) {
-                showNotification('خطا در بارگذاری از فضای ابری. از داده‌های اصلی استفاده می‌شود.', 'error');
-            }
+            console.log("Could not load saved changes:", cloudError);
+            showNotification('خطا در بارگذاری تغییرات ذخیره شده. از داده‌های اصلی استفاده می‌شود.', 'error');
         }
 
         if (savedChanges) {
@@ -159,6 +162,10 @@ async function loadKnowledgeBaseAndInitializeApp() {
 
         hideLoader();
         initializeApp();
+        
+        // Start auto-save monitoring
+        startAutoSave();
+        updateSaveStatus();
     } catch (error) {
         hideLoader();
         console.error("Error loading knowledge base:", error);
@@ -288,6 +295,7 @@ function renderContent(title, data) {
             deleteBtn.className = 'p-1 rounded-full text-gray-400 hover:text-white hover:bg-red-500/50 transition-colors';
             deleteBtn.onclick = () => {
                 delete currentData[title][generalNoteKey];
+                updateSaveStatus(); // Update save status after deletion
                 renderGeneralNoteUI();
                 showNotification('یادداشت کلی حذف شد.', 'info');
             };
@@ -340,6 +348,7 @@ function renderContent(title, data) {
                 if (currentData[title]) delete currentData[title][generalNoteKey];
                 showNotification('یادداشت کلی حذف شد.', 'info');
             }
+            updateSaveStatus(); // Update save status after general note change
             renderGeneralNoteUI();
         };
         actionsDiv.appendChild(saveBtn);
@@ -471,6 +480,8 @@ function deleteNote(path, index) {
             updateData(notesPath, notes);
         }
         
+        updateSaveStatus(); // Update save status after deletion
+        
         const query = searchInput?.value.trim();
         if (query) {
             performSearch(query);
@@ -569,14 +580,21 @@ async function undoAllChanges() {
         // Reset data to original
         currentData = JSON.parse(JSON.stringify(originalData));
         
-        // Save empty changes to Firebase to update server
-        // This ensures that when undo happens, the server is also updated
+        // Save empty changes to localStorage
+        const emptyChanges = { modifications: {}, notes: {} };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyChanges));
+        lastSavedChanges = JSON.stringify(emptyChanges);
+        
+        // Also try Firebase if available (optional fallback)
         if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
-            const emptyChanges = { modifications: {}, notes: {} };
-            const encodedChanges = encodeChangesForFirebase(emptyChanges);
-            const database = window.firebaseDatabase;
-            const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-            await window.firebaseSet(dbRef, encodedChanges);
+            try {
+                const encodedChanges = encodeChangesForFirebase(emptyChanges);
+                const database = window.firebaseDatabase;
+                const dbRef = window.firebaseRef(database, FIREBASE_PATH);
+                await window.firebaseSet(dbRef, encodedChanges);
+            } catch (firebaseError) {
+                console.warn('Firebase save failed during undo:', firebaseError);
+            }
         }
         
         hideLoader();
@@ -585,7 +603,7 @@ async function undoAllChanges() {
             renderContent(activeKey, currentData[activeKey]);
         }
 
-        showNotification('تمام تغییرات با موفقیت بازگردانده شد و در سرور ذخیره شد.', 'success');
+        showNotification('تمام تغییرات با موفقیت بازگردانده شد و ذخیره شد.', 'success');
     } catch (error) {
         hideLoader();
         console.error("Error undoing changes:", error);
@@ -608,6 +626,9 @@ function updateData(path, value) {
     } else {
         obj[keys[keys.length - 1]] = value;
     }
+    
+    // Update save status indicator
+    updateSaveStatus();
 }
 
 function getNestedValue(obj, path) {
@@ -708,64 +729,87 @@ async function saveChanges() {
     }
 
     try {
-        showLoader('در حال ذخیره تغییرات در فضای ابری...');
+        showLoader('در حال ذخیره تغییرات...');
         await saveChangesToCloud(changes);
+        lastSavedChanges = JSON.stringify(changes);
         hideLoader();
-        showNotification('تغییرات با موفقیت در فضای ابری ذخیره شد.', 'success');
+        updateSaveStatus();
+        showNotification('تغییرات با موفقیت ذخیره شد.', 'success');
     } catch (cloudError) {
         hideLoader();
-        console.error("Failed to save to cloud:", cloudError);
-        if (cloudError.message && cloudError.message.includes('Firebase is not configured')) {
-            showNotification('برای ذخیره در فضای ابری، لطفا Firebase را در فایل index.html تنظیم کنید.', 'error');
-        } else {
-            showNotification('خطا در ذخیره تغییرات در فضای ابری.', 'error');
-        }
+        console.error("Failed to save changes:", cloudError);
+        showNotification('خطا در ذخیره تغییرات.', 'error');
     }
 }
 
 async function saveChangesToCloud(changes) {
-    // Check if Firebase is available
-    if (!window.firebaseDatabase || !window.firebaseRef || !window.firebaseSet) {
-        throw new Error('Firebase is not configured. Please set up Firebase in index.html');
-    }
-
+    // Try localStorage first (works offline, no VPN needed)
     try {
-        // Encode changes to make Firebase-compatible keys
-        const encodedChanges = encodeChangesForFirebase(changes);
-        console.log('Original changes:', changes);
-        console.log('Encoded changes:', encodedChanges);
-        const database = window.firebaseDatabase;
-        const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-        await window.firebaseSet(dbRef, encodedChanges);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
+        console.log('Changes saved to localStorage:', changes);
+        
+        // Also try Firebase if available (optional fallback)
+        if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
+            try {
+                const encodedChanges = encodeChangesForFirebase(changes);
+                const database = window.firebaseDatabase;
+                const dbRef = window.firebaseRef(database, FIREBASE_PATH);
+                await window.firebaseSet(dbRef, encodedChanges);
+                console.log('Changes also saved to Firebase');
+            } catch (firebaseError) {
+                console.warn('Firebase save failed (using localStorage only):', firebaseError);
+                // Continue - localStorage save was successful
+            }
+        }
+        
         return { success: true };
     } catch (error) {
-        console.error('Firebase save error:', error);
-        console.error('Changes that failed:', changes);
-        throw new Error(`Failed to save to Firebase: ${error.message}`);
+        console.error('localStorage save error:', error);
+        // Check if it's a quota exceeded error
+        if (error.name === 'QuotaExceededError') {
+            throw new Error('فضای ذخیره‌سازی پر شده است. لطفا از دکمه "خروجی" برای دانلود تغییرات استفاده کنید.');
+        }
+        throw new Error(`Failed to save changes: ${error.message}`);
     }
 }
 
 async function loadChangesFromCloud() {
-    // Check if Firebase is available
-    if (!window.firebaseDatabase || !window.firebaseRef || !window.firebaseGet) {
-        return null; // Silently fail if Firebase not configured
+    // Try localStorage first (works offline, no VPN needed)
+    try {
+        const savedChanges = localStorage.getItem(STORAGE_KEY);
+        if (savedChanges) {
+            const changes = JSON.parse(savedChanges);
+            console.log('Changes loaded from localStorage:', changes);
+            lastSavedChanges = savedChanges;
+            return changes;
+        }
+    } catch (error) {
+        console.warn('localStorage load error:', error);
     }
 
-    try {
-        const database = window.firebaseDatabase;
-        const dbRef = window.firebaseRef(database, FIREBASE_PATH);
-        const snapshot = await window.firebaseGet(dbRef);
-        
-        if (snapshot.exists()) {
-            const encodedChanges = snapshot.val();
-            // Decode changes from Firebase format
-            return decodeChangesFromFirebase(encodedChanges);
+    // Also try Firebase if available (optional fallback)
+    if (window.firebaseDatabase && window.firebaseRef && window.firebaseGet) {
+        try {
+            const database = window.firebaseDatabase;
+            const dbRef = window.firebaseRef(database, FIREBASE_PATH);
+            const snapshot = await window.firebaseGet(dbRef);
+            
+            if (snapshot.exists()) {
+                const encodedChanges = snapshot.val();
+                const changes = decodeChangesFromFirebase(encodedChanges);
+                // Also save to localStorage for future use
+                if (changes) {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
+                    lastSavedChanges = JSON.stringify(changes);
+                }
+                return changes;
+            }
+        } catch (firebaseError) {
+            console.warn('Firebase load failed (using localStorage only):', firebaseError);
         }
-        return null;
-    } catch (error) {
-        console.error('Firebase load error:', error);
-        throw error;
     }
+    
+    return null;
 }
 
 function buildChangesObject(flatMap) {
@@ -830,6 +874,77 @@ function exportChanges() {
     URL.revokeObjectURL(url);
 
     showNotification('فایل خروجی با موفقیت ایجاد شد.', 'success');
+}
+
+function importChanges() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        try {
+            showLoader('در حال بارگذاری فایل...');
+            const text = await file.text();
+            const importedData = JSON.parse(text);
+            
+            // Convert imported data to changes format if needed
+            let changes = importedData;
+            
+            // If the imported data is in the export format (flat map), convert it
+            if (importedData.modifications || importedData.notes) {
+                changes = importedData;
+            } else {
+                // Try to convert flat map to changes format
+                const modifications = {};
+                const notes = {};
+                
+                for (const path in importedData) {
+                    if (path.endsWith('_notes')) {
+                        notes[path] = importedData[path];
+                    } else {
+                        modifications[path] = importedData[path];
+                    }
+                }
+                
+                changes = { modifications, notes };
+            }
+            
+            // Apply imported changes to current data
+            currentData = applyChanges(JSON.parse(JSON.stringify(originalData)), changes);
+            
+            // Save to localStorage
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
+            lastSavedChanges = JSON.stringify(changes);
+            
+            // Also try Firebase if available
+            if (window.firebaseDatabase && window.firebaseRef && window.firebaseSet) {
+                try {
+                    const encodedChanges = encodeChangesForFirebase(changes);
+                    const database = window.firebaseDatabase;
+                    const dbRef = window.firebaseRef(database, FIREBASE_PATH);
+                    await window.firebaseSet(dbRef, encodedChanges);
+                } catch (firebaseError) {
+                    console.warn('Firebase save failed during import:', firebaseError);
+                }
+            }
+            
+            hideLoader();
+            
+            // Refresh the view
+            if (activeKey) {
+                renderContent(activeKey, currentData[activeKey]);
+            }
+            
+            showNotification('تغییرات با موفقیت از فایل بارگذاری و اعمال شد.', 'success');
+        } catch (error) {
+            hideLoader();
+            console.error('Import error:', error);
+            showNotification('خطا در بارگذاری فایل. لطفا فرمت فایل را بررسی کنید.', 'error');
+        }
+    };
+    input.click();
 }
 
 // --- Search Functionality ---
@@ -991,5 +1106,69 @@ function clearSearchAndRestoreView() {
         if (contentTitle) contentTitle.textContent = 'انتخاب کنید';
         if (contentTitleMobile) contentTitleMobile.textContent = 'انتخاب کنید';
         contentArea.innerHTML = '<p>لطفا یک بخش را از منوی سمت راست انتخاب کنید.</p>';
+    }
+}
+
+// Auto-save functionality
+function startAutoSave() {
+    // Auto-save every 30 seconds if there are unsaved changes
+    if (autoSaveInterval) {
+        clearInterval(autoSaveInterval);
+    }
+    
+    autoSaveInterval = setInterval(async () => {
+        const changes = findChanges(originalData, currentData);
+        const hasChanges = Object.keys(changes.modifications || {}).length > 0 || 
+                          Object.keys(changes.notes || {}).length > 0;
+        
+        if (hasChanges) {
+            const currentChangesStr = JSON.stringify(changes);
+            // Only auto-save if changes are different from last saved
+            if (currentChangesStr !== lastSavedChanges) {
+                try {
+                    await saveChangesToCloud(changes);
+                    lastSavedChanges = currentChangesStr;
+                    console.log('Auto-saved changes');
+                    updateSaveStatus();
+                } catch (error) {
+                    console.warn('Auto-save failed:', error);
+                }
+            }
+        }
+    }, 30000); // 30 seconds
+}
+
+// Update save status indicator
+function updateSaveStatus() {
+    const changes = findChanges(originalData, currentData);
+    const hasChanges = Object.keys(changes.modifications || {}).length > 0 || 
+                      Object.keys(changes.notes || {}).length > 0;
+    
+    if (!hasChanges) {
+        // No changes, remove indicator
+        const indicator = document.getElementById('save-status-indicator');
+        if (indicator) {
+            indicator.remove();
+        }
+        return;
+    }
+    
+    const currentChangesStr = JSON.stringify(changes);
+    const isSaved = currentChangesStr === lastSavedChanges;
+    
+    // Find or create indicator
+    let indicator = document.getElementById('save-status-indicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'save-status-indicator';
+        document.body.appendChild(indicator);
+    }
+    
+    if (isSaved) {
+        indicator.textContent = '✓ تغییرات ذخیره شده';
+        indicator.className = 'fixed bottom-4 left-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-semibold transition-all bg-green-600 text-white';
+    } else {
+        indicator.textContent = '⚠ تغییرات ذخیره نشده';
+        indicator.className = 'fixed bottom-4 left-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-semibold transition-all bg-yellow-600 text-white animate-pulse';
     }
 }
