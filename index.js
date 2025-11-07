@@ -1,10 +1,15 @@
 const LOCAL_STORAGE_KEY = 'knowledgeBaseChanges';
 const JSONBIN_BIN_ID_KEY = 'jsonbinBinId'; // Key to store bin ID in localStorage
+const SHARED_BIN_ID_KEY = 'sharedKnowledgeBaseBin'; // Fixed bin ID for sharing across devices
 const USERNAME = 'PayvandLab'; // Hardcoded username
 const PASSWORD = 'AIchatbot'; // Hardcoded password
 const JSONBIN_API_URL = 'https://api.jsonbin.io/v3/b';
 // Get your free API key from https://jsonbin.io - replace this with your key
-const JSONBIN_API_KEY = '$2a$10$YylzpgTP0BDt5BqHxXgsDuqftEUJihklh0BpEVJaGAcUW/fUnQAHK'; 
+const JSONBIN_API_KEY = '$2a$10$YylzpgTP0BDt5BqHxXgsDuqftEUJihklh0BpEVJaGAcUW/fUnQAHK';
+// Fixed bin ID for sharing - set this after creating your first bin
+// To get your bin ID: create a bin, then copy its ID from JSONBin.io dashboard
+// Leave as null to auto-create on first save (but then you need to copy the ID to this variable)
+const FIXED_BIN_ID = null; // Replace null with your bin ID (e.g., '65a1b2c3d4e5f6g7h8i9j0k1') 
 let originalData = {};
 let currentData = {};
 let activeKey = null; // To track the currently displayed section
@@ -64,8 +69,40 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
+    document.getElementById('show-bin-id-btn')?.addEventListener('click', showCurrentBinId);
     searchInput = document.getElementById('search-input');
     searchInput?.addEventListener('input', handleSearch);
+
+    // --- Bin ID Modal functionality ---
+    const binIdModal = document.getElementById('bin-id-modal');
+    const closeBinIdModal = document.getElementById('close-bin-id-modal');
+    const copyBinIdBtn = document.getElementById('copy-bin-id-btn');
+    
+    closeBinIdModal?.addEventListener('click', () => {
+        if (binIdModal) binIdModal.classList.add('hidden');
+    });
+    
+    copyBinIdBtn?.addEventListener('click', async () => {
+        const binIdDisplay = document.getElementById('bin-id-display');
+        if (binIdDisplay && binIdDisplay.value) {
+            try {
+                await navigator.clipboard.writeText(binIdDisplay.value);
+                showNotification('Bin ID کپی شد!', 'success');
+            } catch (err) {
+                // Fallback for older browsers
+                binIdDisplay.select();
+                document.execCommand('copy');
+                showNotification('Bin ID کپی شد!', 'success');
+            }
+        }
+    });
+    
+    // Close modal when clicking outside
+    binIdModal?.addEventListener('click', (e) => {
+        if (e.target === binIdModal) {
+            binIdModal.classList.add('hidden');
+        }
+    });
 });
 
 function handleLogin() {
@@ -630,6 +667,35 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
+function showBinIdModal(binId) {
+    const modal = document.getElementById('bin-id-modal');
+    const binIdDisplay = document.getElementById('bin-id-display');
+    
+    if (modal && binIdDisplay && binId) {
+        binIdDisplay.value = binId;
+        modal.classList.remove('hidden');
+    }
+}
+
+function showCurrentBinId() {
+    // Try to get bin ID from fixed constant, localStorage, or show message
+    let binId = FIXED_BIN_ID;
+    
+    if (!binId) {
+        binId = localStorage.getItem(SHARED_BIN_ID_KEY);
+    }
+    
+    if (!binId) {
+        binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
+    }
+    
+    if (binId) {
+        showBinIdModal(binId);
+    } else {
+        showNotification('هنوز Bin ID ایجاد نشده است. ابتدا تغییراتی ایجاد کنید و ذخیره کنید.', 'info');
+    }
+}
+
 async function saveChanges() {
     const changes = findChanges(originalData, currentData);
     if (Object.keys(changes.modifications || {}).length === 0 && Object.keys(changes.notes || {}).length === 0) {
@@ -665,10 +731,26 @@ async function saveChangesToCloud(changes) {
     }
 
     try {
-        let binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
+        // Use fixed bin ID if set, otherwise try localStorage, otherwise create new
+        let binId = FIXED_BIN_ID;
+        
+        if (!binId) {
+            // Try to get shared bin ID from localStorage
+            binId = localStorage.getItem(SHARED_BIN_ID_KEY);
+            
+            // If no shared bin ID, try to get from old location (for migration)
+            if (!binId) {
+                binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
+                if (binId) {
+                    // Migrate to shared key
+                    localStorage.setItem(SHARED_BIN_ID_KEY, binId);
+                    localStorage.removeItem(JSONBIN_BIN_ID_KEY);
+                }
+            }
+        }
         
         if (binId) {
-            // Bin exists, update it
+            // Bin exists, try to update it
             const updateResponse = await fetch(`${JSONBIN_API_URL}/${binId}`, {
                 method: 'PUT',
                 headers: {
@@ -682,12 +764,21 @@ async function saveChangesToCloud(changes) {
                 if (updateResponse.status === 404) {
                     // Bin was deleted, create a new one
                     binId = null;
+                    if (!FIXED_BIN_ID) {
+                        localStorage.removeItem(SHARED_BIN_ID_KEY);
+                    }
                 } else {
                     const errorData = await updateResponse.json().catch(() => ({}));
                     throw new Error(`Failed to update cloud storage: ${updateResponse.status} - ${errorData.message || 'Unknown error'}`);
                 }
             } else {
-                return await updateResponse.json();
+                // Successfully updated
+                const result = await updateResponse.json();
+                // If using fixed bin ID, also store it in localStorage for devices that don't have it in code
+                if (FIXED_BIN_ID && !localStorage.getItem(SHARED_BIN_ID_KEY)) {
+                    localStorage.setItem(SHARED_BIN_ID_KEY, FIXED_BIN_ID);
+                }
+                return result;
             }
         }
         
@@ -713,7 +804,17 @@ async function saveChangesToCloud(changes) {
             binId = result.metadata?.id;
             
             if (binId) {
+                // Store in localStorage so all devices can access it
+                localStorage.setItem(SHARED_BIN_ID_KEY, binId);
                 localStorage.setItem(JSONBIN_BIN_ID_KEY, binId);
+                
+                // Show notification with bin ID so user can copy it to FIXED_BIN_ID
+                console.log('New bin created! Bin ID:', binId);
+                console.log('Copy this ID to FIXED_BIN_ID in index.js for better sharing across devices');
+                showNotification(`Bin جدید ایجاد شد. برای به اشتراک گذاری، Bin ID را ببینید.`, 'info');
+                
+                // Show modal with bin ID
+                showBinIdModal(binId);
             }
             
             return result;
@@ -730,7 +831,22 @@ async function loadChangesFromCloud() {
     }
 
     try {
-        const binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
+        // Use fixed bin ID if set, otherwise try localStorage
+        let binId = FIXED_BIN_ID;
+        
+        if (!binId) {
+            // Try to get shared bin ID from localStorage
+            binId = localStorage.getItem(SHARED_BIN_ID_KEY);
+            
+            // If no shared bin ID, try to get from old location (for migration)
+            if (!binId) {
+                binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
+                if (binId) {
+                    // Migrate to shared key
+                    localStorage.setItem(SHARED_BIN_ID_KEY, binId);
+                }
+            }
+        }
         
         if (!binId) {
             // No bin ID stored, nothing to load
@@ -746,15 +862,30 @@ async function loadChangesFromCloud() {
 
         if (!response.ok) {
             if (response.status === 404) {
-                // Bin doesn't exist, clear the stored ID
-                localStorage.removeItem(JSONBIN_BIN_ID_KEY);
+                // Bin doesn't exist, clear the stored IDs (unless using fixed bin ID)
+                if (!FIXED_BIN_ID) {
+                    localStorage.removeItem(SHARED_BIN_ID_KEY);
+                    localStorage.removeItem(JSONBIN_BIN_ID_KEY);
+                }
                 return null;
             }
             throw new Error(`Failed to load from cloud: ${response.status}`);
         }
 
         const result = await response.json();
-        return result.record || result; // JSONBin v3 returns data in .record property
+        const changes = result.record || result; // JSONBin v3 returns data in .record property
+        
+        // Ensure bin ID is stored in localStorage (even if using fixed bin ID, for devices that don't have it)
+        if (binId) {
+            if (FIXED_BIN_ID) {
+                // Store fixed bin ID in localStorage so devices without the code update can still access it
+                localStorage.setItem(SHARED_BIN_ID_KEY, FIXED_BIN_ID);
+            } else if (!localStorage.getItem(SHARED_BIN_ID_KEY)) {
+                localStorage.setItem(SHARED_BIN_ID_KEY, binId);
+            }
+        }
+        
+        return changes;
     } catch (error) {
         console.error('Error loading from cloud:', error);
         throw error;
