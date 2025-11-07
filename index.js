@@ -1,111 +1,59 @@
-const STORAGE_KEY = 'knowledgeBase_changes';
+const LOCAL_STORAGE_KEY = 'knowledgeBaseChanges';
 let originalData = {};
 let currentData = {};
 let activeKey = null; // To track the currently displayed section
 let searchInput = null;
-let autoSaveInterval = null;
-let lastSavedChanges = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize app directly without login
+    // Directly initialize the app as login is removed
     loadKnowledgeBaseAndInitializeApp();
 
     // --- Save, Undo, Export, and Search Functionality ---
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
-    document.getElementById('save-changes-btn-mobile')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
-    document.getElementById('undo-all-btn-mobile')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
-    document.getElementById('export-changes-btn-mobile')?.addEventListener('click', exportChanges);
-    
-    // Search inputs (desktop and mobile)
     searchInput = document.getElementById('search-input');
-    const searchInputMobile = document.getElementById('search-input-mobile');
     searchInput?.addEventListener('input', handleSearch);
-    searchInputMobile?.addEventListener('input', (e) => {
-        if (searchInput) searchInput.value = e.target.value;
-        handleSearch(e);
-    });
-
-    // Mobile sidebar toggle
-    const menuToggleBtn = document.getElementById('menu-toggle-btn');
-    const closeSidebarBtn = document.getElementById('close-sidebar-btn');
-    const sidebar = document.getElementById('sidebar');
-    const sidebarOverlay = document.getElementById('sidebar-overlay');
-
-    const openSidebar = () => {
-        sidebar?.classList.add('open');
-        sidebarOverlay?.classList.remove('hidden');
-    };
-
-    const closeSidebar = () => {
-        sidebar?.classList.remove('open');
-        sidebarOverlay?.classList.add('hidden');
-    };
-
-    menuToggleBtn?.addEventListener('click', openSidebar);
-    closeSidebarBtn?.addEventListener('click', closeSidebar);
-    sidebarOverlay?.addEventListener('click', closeSidebar);
-
-    // Close sidebar when clicking on a navigation item (mobile only)
-    const navigation = document.getElementById('navigation');
-    if (navigation) {
-        navigation.addEventListener('click', (e) => {
-            if (e.target.tagName === 'A' && window.innerWidth < 768) {
-                closeSidebar();
-            }
-        });
-    }
 });
 
-
-async function loadKnowledgeBaseAndInitializeApp() {
-    try {
-        showLoader('در حال بارگذاری پایگاه دانش...');
-        
-        // Fetch and initialize data
-        const response = await fetch('./knowledgeBase.json');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        originalData = JSON.parse(JSON.stringify(data)); // Deep copy for comparison
-
-        // Load changes from localStorage
-        let savedChanges = null;
-        
-        try {
-            savedChanges = loadChangesFromStorage();
-            if (savedChanges) {
-                showNotification('تغییرات ذخیره شده بارگذاری شد.', 'success');
+function loadKnowledgeBaseAndInitializeApp() {
+    // Fetch and initialize data
+    fetch('./knowledgeBase.json')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-        } catch (error) {
-            console.log("Could not load saved changes:", error);
-            showNotification('خطا در بارگذاری تغییرات ذخیره شده. از داده‌های اصلی استفاده می‌شود.', 'error');
-        }
+            return response.json();
+        })
+        .then(data => {
+            originalData = JSON.parse(JSON.stringify(data)); // Deep copy for comparison
 
-        if (savedChanges) {
-            // Start with a fresh copy of originalData and apply saved changes
-            currentData = applyChanges(JSON.parse(JSON.stringify(originalData)), savedChanges);
-        } else {
-            // No saved changes, start with the original data
-            currentData = JSON.parse(JSON.stringify(originalData));
-        }
+            // Load changes from local storage
+            const savedChangesJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (savedChangesJSON) {
+                try {
+                    const savedChanges = JSON.parse(savedChangesJSON);
+                    // Start with a fresh copy of originalData and apply saved changes
+                    currentData = applyChanges(JSON.parse(JSON.stringify(originalData)), savedChanges);
+                } catch (e) {
+                    console.error("Error parsing saved changes from localStorage:", e);
+                    // If parsing fails, start with the original data
+                    currentData = JSON.parse(JSON.stringify(originalData));
+                }
+            } else {
+                // No saved changes, start with the original data
+                currentData = JSON.parse(JSON.stringify(originalData));
+            }
 
-        hideLoader();
-        initializeApp();
-        
-        // Start auto-save monitoring
-        startAutoSave();
-        updateSaveStatus();
-    } catch (error) {
-        hideLoader();
-        console.error("Error loading knowledge base:", error);
-        const contentArea = document.getElementById('content-area');
-        if(contentArea) {
-            contentArea.innerHTML = `<p class="text-red-500">خطا در بارگذاری پایگاه دانش. لطفا فایل knowledgeBase.json را بررسی کنید.</p>`;
-        }
-    }
+            initializeApp();
+        })
+        .catch(error => {
+            console.error("Error loading knowledge base:", error);
+            const contentArea = document.getElementById('content-area');
+            if(contentArea) {
+                contentArea.innerHTML = `<p class="text-red-500">خطا در بارگذاری پایگاه دانش. لطفا فایل knowledgeBase.json را بررسی کنید.</p>`;
+            }
+        });
 }
 
 
@@ -152,14 +100,9 @@ function initializeApp() {
             e.preventDefault();
             activeKey = key;
 
-            // Clear search inputs when a category is selected
-            const searchInput = document.getElementById('search-input');
-            const searchInputMobile = document.getElementById('search-input-mobile');
+            // Clear search input when a category is selected
             if (searchInput) {
                 searchInput.value = '';
-            }
-            if (searchInputMobile) {
-                searchInputMobile.value = '';
             }
 
             renderContent(key, currentData[key]);
@@ -184,12 +127,9 @@ function initializeApp() {
 function renderContent(title, data) {
     const contentArea = document.getElementById('content-area');
     const contentTitle = document.getElementById('content-title');
-    const contentTitleMobile = document.getElementById('content-title-mobile');
-    if (!contentArea) return;
+    if (!contentArea || !contentTitle) return;
 
-    const displayTitle = title.replace(/_/g, ' ');
-    if (contentTitle) contentTitle.textContent = displayTitle;
-    if (contentTitleMobile) contentTitleMobile.textContent = displayTitle;
+    contentTitle.textContent = title.replace(/_/g, ' ');
     contentArea.innerHTML = '';
 
     // --- General Note Section ---
@@ -227,7 +167,6 @@ function renderContent(title, data) {
             deleteBtn.className = 'p-1 rounded-full text-gray-400 hover:text-white hover:bg-red-500/50 transition-colors';
             deleteBtn.onclick = () => {
                 delete currentData[title][generalNoteKey];
-                updateSaveStatus(); // Update save status after deletion
                 renderGeneralNoteUI();
                 showNotification('یادداشت کلی حذف شد.', 'info');
             };
@@ -280,7 +219,6 @@ function renderContent(title, data) {
                 if (currentData[title]) delete currentData[title][generalNoteKey];
                 showNotification('یادداشت کلی حذف شد.', 'info');
             }
-            updateSaveStatus(); // Update save status after general note change
             renderGeneralNoteUI();
         };
         actionsDiv.appendChild(saveBtn);
@@ -412,8 +350,6 @@ function deleteNote(path, index) {
             updateData(notesPath, notes);
         }
         
-        updateSaveStatus(); // Update save status after deletion
-        
         const query = searchInput?.value.trim();
         if (query) {
             performSearch(query);
@@ -506,29 +442,14 @@ function undoAllChanges() {
         return;
     }
 
-    try {
-        showLoader('در حال بازگردانی تغییرات...');
-        
-        // Reset data to original
-        currentData = JSON.parse(JSON.stringify(originalData));
-        
-        // Save empty changes to localStorage
-        const emptyChanges = { modifications: {}, notes: {} };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyChanges));
-        lastSavedChanges = JSON.stringify(emptyChanges);
-        
-        hideLoader();
-        
-        if (activeKey) {
-            renderContent(activeKey, currentData[activeKey]);
-        }
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    currentData = JSON.parse(JSON.stringify(originalData));
 
-        showNotification('تمام تغییرات با موفقیت بازگردانده شد و ذخیره شد.', 'success');
-    } catch (error) {
-        hideLoader();
-        console.error("Error undoing changes:", error);
-        showNotification('خطا در بازگردانی تغییرات.', 'error');
+    if (activeKey) {
+        renderContent(activeKey, currentData[activeKey]);
     }
+
+    showNotification('تمام تغییرات با موفقیت بازگردانده شد.', 'success');
 }
 
 
@@ -546,9 +467,6 @@ function updateData(path, value) {
     } else {
         obj[keys[keys.length - 1]] = value;
     }
-    
-    // Update save status indicator
-    updateSaveStatus();
 }
 
 function getNestedValue(obj, path) {
@@ -572,6 +490,30 @@ function findChanges(original, current) {
         if (typeof currObj !== 'object' || currObj === null) {
             if (JSON.stringify(currObj) !== JSON.stringify(origObj)) {
                 modifications[path] = currObj;
+            }
+            return;
+        }
+
+        // Handle arrays by recursively checking each element
+        if (Array.isArray(currObj)) {
+            const origArray = Array.isArray(origObj) ? origObj : [];
+            const maxLength = Math.max(currObj.length, origArray.length);
+            
+            for (let i = 0; i < maxLength; i++) {
+                const currentPath = `${path}[${i}]`;
+                const currItem = currObj[i];
+                const origItem = origArray[i];
+                
+                if (i >= currObj.length) {
+                    // Item was removed from original
+                    continue;
+                } else if (i >= origArray.length) {
+                    // New item added
+                    modifications[currentPath] = currItem;
+                } else {
+                    // Item exists in both, recurse to check for changes
+                    recurse(origItem, currItem, currentPath);
+                }
             }
             return;
         }
@@ -622,25 +564,6 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-function showLoader(message = 'در حال بارگذاری...') {
-    const loaderOverlay = document.getElementById('loader-overlay');
-    const loaderText = loaderOverlay?.querySelector('p.text-lg');
-    if (loaderOverlay) {
-        loaderOverlay.classList.remove('hidden');
-        if (loaderText) {
-            loaderText.textContent = message;
-        }
-    }
-}
-
-function hideLoader() {
-    const loaderOverlay = document.getElementById('loader-overlay');
-    if (loaderOverlay) {
-        loaderOverlay.classList.add('hidden');
-    }
-}
-
-
 function saveChanges() {
     const changes = findChanges(originalData, currentData);
     if (Object.keys(changes.modifications || {}).length === 0 && Object.keys(changes.notes || {}).length === 0) {
@@ -649,48 +572,12 @@ function saveChanges() {
     }
 
     try {
-        showLoader('در حال ذخیره تغییرات...');
-        saveChangesToStorage(changes);
-        lastSavedChanges = JSON.stringify(changes);
-        hideLoader();
-        updateSaveStatus();
-        showNotification('تغییرات با موفقیت ذخیره شد.', 'success');
-    } catch (error) {
-        hideLoader();
-        console.error("Failed to save changes:", error);
-        showNotification(error.message || 'خطا در ذخیره تغییرات.', 'error');
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(changes));
+        showNotification('تغییرات با موفقیت در مرورگر شما ذخیره شد.', 'success');
+    } catch (e) {
+        console.error("Failed to save to localStorage:", e);
+        showNotification('خطا در ذخیره سازی. ممکن است حافظه مرورگر پر باشد.', 'error');
     }
-}
-
-function saveChangesToStorage(changes) {
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
-        console.log('Changes saved to localStorage:', changes);
-        return { success: true };
-    } catch (error) {
-        console.error('localStorage save error:', error);
-        // Check if it's a quota exceeded error
-        if (error.name === 'QuotaExceededError') {
-            throw new Error('فضای ذخیره‌سازی پر شده است. لطفا از دکمه "خروجی" برای دانلود تغییرات استفاده کنید.');
-        }
-        throw new Error(`Failed to save changes: ${error.message}`);
-    }
-}
-
-function loadChangesFromStorage() {
-    try {
-        const savedChanges = localStorage.getItem(STORAGE_KEY);
-        if (savedChanges) {
-            const changes = JSON.parse(savedChanges);
-            console.log('Changes loaded from localStorage:', changes);
-            lastSavedChanges = savedChanges;
-            return changes;
-        }
-    } catch (error) {
-        console.warn('localStorage load error:', error);
-    }
-    
-    return null;
 }
 
 function buildChangesObject(flatMap) {
@@ -757,22 +644,10 @@ function exportChanges() {
     showNotification('فایل خروجی با موفقیت ایجاد شد.', 'success');
 }
 
-
 // --- Search Functionality ---
 
 function handleSearch(event) {
     const query = event.target.value.toLowerCase().trim();
-    // Sync search inputs
-    const searchInput = document.getElementById('search-input');
-    const searchInputMobile = document.getElementById('search-input-mobile');
-    if (searchInput && searchInputMobile) {
-        if (event.target === searchInput) {
-            searchInputMobile.value = searchInput.value;
-        } else {
-            searchInput.value = searchInputMobile.value;
-        }
-    }
-    
     if (!query) {
         clearSearchAndRestoreView();
     } else {
@@ -902,8 +777,7 @@ function renderSearchResults(results, query) {
 function clearSearchAndRestoreView() {
     const contentArea = document.getElementById('content-area');
     const contentTitle = document.getElementById('content-title');
-    const contentTitleMobile = document.getElementById('content-title-mobile');
-    if (!contentArea) return;
+    if (!contentArea || !contentTitle) return;
 
     if (activeKey) {
         renderContent(activeKey, currentData[activeKey]);
@@ -914,72 +788,7 @@ function clearSearchAndRestoreView() {
             }
         });
     } else {
-        if (contentTitle) contentTitle.textContent = 'انتخاب کنید';
-        if (contentTitleMobile) contentTitleMobile.textContent = 'انتخاب کنید';
+        contentTitle.textContent = 'انتخاب کنید';
         contentArea.innerHTML = '<p>لطفا یک بخش را از منوی سمت راست انتخاب کنید.</p>';
-    }
-}
-
-// Auto-save functionality
-function startAutoSave() {
-    // Auto-save every 30 seconds if there are unsaved changes
-    if (autoSaveInterval) {
-        clearInterval(autoSaveInterval);
-    }
-    
-    autoSaveInterval = setInterval(() => {
-        const changes = findChanges(originalData, currentData);
-        const hasChanges = Object.keys(changes.modifications || {}).length > 0 || 
-                          Object.keys(changes.notes || {}).length > 0;
-        
-        if (hasChanges) {
-            const currentChangesStr = JSON.stringify(changes);
-            // Only auto-save if changes are different from last saved
-            if (currentChangesStr !== lastSavedChanges) {
-                try {
-                    saveChangesToStorage(changes);
-                    lastSavedChanges = currentChangesStr;
-                    console.log('Auto-saved changes');
-                    updateSaveStatus();
-                } catch (error) {
-                    console.warn('Auto-save failed:', error);
-                }
-            }
-        }
-    }, 30000); // 30 seconds
-}
-
-// Update save status indicator
-function updateSaveStatus() {
-    const changes = findChanges(originalData, currentData);
-    const hasChanges = Object.keys(changes.modifications || {}).length > 0 || 
-                      Object.keys(changes.notes || {}).length > 0;
-    
-    if (!hasChanges) {
-        // No changes, remove indicator
-        const indicator = document.getElementById('save-status-indicator');
-        if (indicator) {
-            indicator.remove();
-        }
-        return;
-    }
-    
-    const currentChangesStr = JSON.stringify(changes);
-    const isSaved = currentChangesStr === lastSavedChanges;
-    
-    // Find or create indicator
-    let indicator = document.getElementById('save-status-indicator');
-    if (!indicator) {
-        indicator = document.createElement('div');
-        indicator.id = 'save-status-indicator';
-        document.body.appendChild(indicator);
-    }
-    
-    if (isSaved) {
-        indicator.textContent = '✓ تغییرات ذخیره شده';
-        indicator.className = 'fixed bottom-4 left-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-semibold transition-all bg-green-600 text-white';
-    } else {
-        indicator.textContent = '⚠ تغییرات ذخیره نشده';
-        indicator.className = 'fixed bottom-4 left-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-semibold transition-all bg-yellow-600 text-white animate-pulse';
     }
 }
