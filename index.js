@@ -1,55 +1,151 @@
 const LOCAL_STORAGE_KEY = 'knowledgeBaseChanges';
+const JSONBIN_BIN_ID_KEY = 'jsonbinBinId'; // Key to store bin ID in localStorage
+const USERNAME = 'PayvandLab'; // Hardcoded username
+const PASSWORD = 'AIchatbot'; // Hardcoded password
+const JSONBIN_API_URL = 'https://api.jsonbin.io/v3/b';
+// Get your free API key from https://jsonbin.io - replace this with your key
+const JSONBIN_API_KEY = '$2a$10$YylzpgTP0BDt5BqHxXgsDuqftEUJihklh0BpEVJaGAcUW/fUnQAHK'; 
 let originalData = {};
 let currentData = {};
 let activeKey = null; // To track the currently displayed section
 let searchInput = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Fetch and initialize data
-    fetch('./knowledgeBase.json')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            originalData = JSON.parse(JSON.stringify(data)); // Deep copy for comparison
+    const loginContainer = document.getElementById('login-container');
+    const appContainer = document.getElementById('app');
+    const loginBtn = document.getElementById('login-btn');
+    const usernameInput = document.getElementById('username-input');
+    const passwordInput = document.getElementById('password-input');
+    const loginErrorMessage = document.getElementById('login-error-message');
+    const togglePasswordVisibilityBtn = document.getElementById('toggle-password-visibility');
+    const eyeOpenIcon = document.getElementById('eye-open-icon');
+    const eyeClosedIcon = document.getElementById('eye-closed-icon');
 
-            // Load changes from local storage
-            const savedChangesJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (savedChangesJSON) {
-                try {
-                    const savedChanges = JSON.parse(savedChangesJSON);
-                    // Start with a fresh copy of originalData and apply saved changes
-                    currentData = applyChanges(JSON.parse(JSON.stringify(originalData)), savedChanges);
-                } catch (e) {
-                    console.error("Error parsing saved changes from localStorage:", e);
-                    // If parsing fails, start with the original data
-                    currentData = JSON.parse(JSON.stringify(originalData));
-                }
-            } else {
-                // No saved changes, start with the original data
-                currentData = JSON.parse(JSON.stringify(originalData));
-            }
+    // Check if user is already logged in
+    if (sessionStorage.getItem('loggedIn') === 'true') {
+        if (loginContainer) loginContainer.style.display = 'none';
+        if (appContainer) appContainer.style.display = 'flex'; // Show the app
+        loadKnowledgeBaseAndInitializeApp();
+    } else {
+        if (loginContainer) loginContainer.style.display = 'flex';
+        if (appContainer) appContainer.style.display = 'none'; // Hide the app
+    }
 
-            initializeApp();
-        })
-        .catch(error => {
-            console.error("Error loading knowledge base:", error);
-            const contentArea = document.getElementById('content-area');
-            if(contentArea) {
-                contentArea.innerHTML = `<p class="text-red-500">خطا در بارگذاری پایگاه دانش. لطفا فایل knowledgeBase.json را بررسی کنید.</p>`;
+    if (loginBtn && usernameInput && passwordInput) {
+        loginBtn.addEventListener('click', handleLogin);
+        // Allow pressing Enter in password field to log in
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleLogin();
             }
         });
+    }
 
-    // --- Save, Undo, Export, and Search Functionality ---
+    // Password visibility toggle logic
+    if (togglePasswordVisibilityBtn && passwordInput && eyeOpenIcon && eyeClosedIcon) {
+        togglePasswordVisibilityBtn.addEventListener('click', () => {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+
+            // Toggle eye icons
+            if (type === 'password') {
+                eyeOpenIcon.style.display = 'block';
+                eyeClosedIcon.style.display = 'none';
+                togglePasswordVisibilityBtn.setAttribute('aria-label', 'نمایش رمز عبور');
+            } else {
+                eyeOpenIcon.style.display = 'none';
+                eyeClosedIcon.style.display = 'block';
+                togglePasswordVisibilityBtn.setAttribute('aria-label', 'پنهان کردن رمز عبور');
+            }
+        });
+    }
+
+    // --- Save, Undo, Export, and Search Functionality (after login) ---
     document.getElementById('save-changes-btn')?.addEventListener('click', saveChanges);
     document.getElementById('undo-all-btn')?.addEventListener('click', undoAllChanges);
     document.getElementById('export-changes-btn')?.addEventListener('click', exportChanges);
     searchInput = document.getElementById('search-input');
     searchInput?.addEventListener('input', handleSearch);
 });
+
+function handleLogin() {
+    const usernameInput = document.getElementById('username-input');
+    const passwordInput = document.getElementById('password-input');
+    const loginErrorMessage = document.getElementById('login-error-message');
+
+    const username = usernameInput ? usernameInput.value : '';
+    const password = passwordInput ? passwordInput.value : '';
+
+    if (username === USERNAME && password === PASSWORD) {
+        sessionStorage.setItem('loggedIn', 'true');
+        const loginContainer = document.getElementById('login-container');
+        const appContainer = document.getElementById('app');
+        if (loginContainer) loginContainer.style.display = 'none';
+        if (appContainer) appContainer.style.display = 'flex';
+        if (loginErrorMessage) {
+            loginErrorMessage.textContent = '';
+            loginErrorMessage.classList.add('hidden');
+        }
+        loadKnowledgeBaseAndInitializeApp();
+    } else {
+        if (loginErrorMessage) {
+            loginErrorMessage.textContent = 'نام کاربری یا رمز عبور اشتباه است.';
+            loginErrorMessage.classList.remove('hidden');
+        }
+        if (passwordInput) passwordInput.value = ''; // Clear password field on failure
+        showNotification('نام کاربری یا رمز عبور اشتباه است.', 'error');
+    }
+}
+
+async function loadKnowledgeBaseAndInitializeApp() {
+    try {
+        // Fetch and initialize data
+        const response = await fetch('./knowledgeBase.json');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        originalData = JSON.parse(JSON.stringify(data)); // Deep copy for comparison
+
+        // Try to load changes from cloud storage first, then fallback to local storage
+        let savedChanges = null;
+        
+        try {
+            savedChanges = await loadChangesFromCloud();
+            if (savedChanges) {
+                showNotification('تغییرات از فضای ابری بارگذاری شد.', 'success');
+            }
+        } catch (cloudError) {
+            console.log("Could not load from cloud, trying local storage:", cloudError);
+            // Fallback to local storage
+            const savedChangesJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (savedChangesJSON) {
+                try {
+                    savedChanges = JSON.parse(savedChangesJSON);
+                } catch (e) {
+                    console.error("Error parsing saved changes from localStorage:", e);
+                }
+            }
+        }
+
+        if (savedChanges) {
+            // Start with a fresh copy of originalData and apply saved changes
+            currentData = applyChanges(JSON.parse(JSON.stringify(originalData)), savedChanges);
+        } else {
+            // No saved changes, start with the original data
+            currentData = JSON.parse(JSON.stringify(originalData));
+        }
+
+        initializeApp();
+    } catch (error) {
+        console.error("Error loading knowledge base:", error);
+        const contentArea = document.getElementById('content-area');
+        if(contentArea) {
+            contentArea.innerHTML = `<p class="text-red-500">خطا در بارگذاری پایگاه دانش. لطفا فایل knowledgeBase.json را بررسی کنید.</p>`;
+        }
+    }
+}
+
 
 function applyChanges(data, changes) {
     const setNestedValue = (obj, path, value) => {
@@ -217,11 +313,11 @@ function renderContent(title, data) {
         };
         actionsDiv.appendChild(saveBtn);
 
-        const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'لغو';
-        cancelBtn.className = 'px-3 py-1 secondary-bg text-white rounded-md secondary-hover-bg transition-all text-sm';
-        cancelBtn.onclick = () => renderGeneralNoteUI();
-        actionsDiv.appendChild(cancelBtn);
+        const cancelButton = document.createElement('button');
+        cancelButton.textContent = 'لغو';
+        cancelButton.className = 'px-3 py-1 secondary-bg text-white rounded-md secondary-hover-bg transition-all text-sm';
+        cancelButton.onclick = () => renderGeneralNoteUI();
+        actionsDiv.appendChild(cancelButton);
         
         generalNoteContainer.appendChild(actionsDiv);
         textarea.focus();
@@ -534,19 +630,134 @@ function showNotification(message, type = 'info') {
     }, 3000);
 }
 
-function saveChanges() {
+async function saveChanges() {
     const changes = findChanges(originalData, currentData);
     if (Object.keys(changes.modifications || {}).length === 0 && Object.keys(changes.notes || {}).length === 0) {
         showNotification('هیچ تغییری برای ذخیره وجود ندارد.', 'info');
         return;
     }
 
+    // Save to local storage first (for offline access)
     try {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(changes));
-        showNotification('تغییرات با موفقیت در مرورگر شما ذخیره شد.', 'success');
     } catch (e) {
         console.error("Failed to save to localStorage:", e);
-        showNotification('خطا در ذخیره سازی. ممکن است حافظه مرورگر پر باشد.', 'error');
+    }
+
+    // Save to cloud storage
+    try {
+        await saveChangesToCloud(changes);
+        showNotification('تغییرات با موفقیت در فضای ابری و مرورگر ذخیره شد.', 'success');
+    } catch (cloudError) {
+        console.error("Failed to save to cloud:", cloudError);
+        if (cloudError.message && cloudError.message.includes('API key not configured')) {
+            showNotification('برای ذخیره در فضای ابری، لطفا API Key از jsonbin.io دریافت کنید و در فایل index.js تنظیم کنید.', 'error');
+        } else {
+            showNotification('تغییرات در مرورگر ذخیره شد، اما ذخیره در فضای ابری ناموفق بود.', 'error');
+        }
+    }
+}
+
+async function saveChangesToCloud(changes) {
+    // Check if API key is configured
+    if (JSONBIN_API_KEY === '$2a$10$YOUR_API_KEY_HERE') {
+        throw new Error('JSONBin API key not configured. Please get a free API key from https://jsonbin.io and update JSONBIN_API_KEY in index.js');
+    }
+
+    try {
+        let binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
+        
+        if (binId) {
+            // Bin exists, update it
+            const updateResponse = await fetch(`${JSONBIN_API_URL}/${binId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': JSONBIN_API_KEY
+                },
+                body: JSON.stringify(changes)
+            });
+
+            if (!updateResponse.ok) {
+                if (updateResponse.status === 404) {
+                    // Bin was deleted, create a new one
+                    binId = null;
+                } else {
+                    const errorData = await updateResponse.json().catch(() => ({}));
+                    throw new Error(`Failed to update cloud storage: ${updateResponse.status} - ${errorData.message || 'Unknown error'}`);
+                }
+            } else {
+                return await updateResponse.json();
+            }
+        }
+        
+        if (!binId) {
+            // Create a new bin
+            const createResponse = await fetch(`${JSONBIN_API_URL}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': JSONBIN_API_KEY,
+                    'X-Bin-Name': 'Knowledge Base Changes',
+                    'X-Bin-Private': 'false'
+                },
+                body: JSON.stringify(changes)
+            });
+
+            if (!createResponse.ok) {
+                const errorData = await createResponse.json().catch(() => ({}));
+                throw new Error(`Failed to create cloud storage: ${createResponse.status} - ${errorData.message || 'Unknown error'}`);
+            }
+
+            const result = await createResponse.json();
+            binId = result.metadata?.id;
+            
+            if (binId) {
+                localStorage.setItem(JSONBIN_BIN_ID_KEY, binId);
+            }
+            
+            return result;
+        }
+    } catch (error) {
+        throw error;
+    }
+}
+
+async function loadChangesFromCloud() {
+    // Check if API key is configured
+    if (JSONBIN_API_KEY === '$2a$10$YOUR_API_KEY_HERE') {
+        return null; // Silently fail if API key not configured
+    }
+
+    try {
+        const binId = localStorage.getItem(JSONBIN_BIN_ID_KEY);
+        
+        if (!binId) {
+            // No bin ID stored, nothing to load
+            return null;
+        }
+
+        const response = await fetch(`${JSONBIN_API_URL}/${binId}/latest`, {
+            method: 'GET',
+            headers: {
+                'X-Master-Key': JSONBIN_API_KEY
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                // Bin doesn't exist, clear the stored ID
+                localStorage.removeItem(JSONBIN_BIN_ID_KEY);
+                return null;
+            }
+            throw new Error(`Failed to load from cloud: ${response.status}`);
+        }
+
+        const result = await response.json();
+        return result.record || result; // JSONBin v3 returns data in .record property
+    } catch (error) {
+        console.error('Error loading from cloud:', error);
+        throw error;
     }
 }
 
